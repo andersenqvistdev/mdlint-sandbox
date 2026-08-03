@@ -9,3 +9,5 @@ A fast, dependency-light Markdown linter with a rule-per-check architecture.
 ```bash
 pip install -e ".[dev]"
 ```
+
+<!-- canary: verifies the PR path end to end -->
