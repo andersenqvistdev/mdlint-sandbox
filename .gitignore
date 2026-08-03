@@ -44,3 +44,6 @@ dist/
 # Local virtualenv
 .venv/
 venv/
+
+# uv regenerates this on every worker run — keeps it out of every PR diff
+uv.lock

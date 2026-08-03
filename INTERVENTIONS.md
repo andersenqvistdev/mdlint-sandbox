@@ -10,8 +10,13 @@ logs, running metrics, and observing do not count.
 
 ## Run window
 
-- **Launched:** 2026-08-03 12:12 UTC (daemon `com.forgelabs.daemon.mdlint-sandbox-d1bfdc`, PID 61138)
+- **First launch:** 2026-08-03 12:12 UTC — **shakedown only, does not count.**
+  Finding #9 (`uv.lock` humanProtected) made shipping structurally impossible,
+  so zero product PRs were reachable regardless of worker quality.
+- **Clock start:** 2026-08-03 ~13:20 UTC, after findings #9 and #10 were fixed
+  and the ceiling-blocked tasks were returned to pending.
 - **14-day bar ends:** 2026-08-17
+- **Daemon:** `com.forgelabs.daemon.mdlint-sandbox-d1bfdc`
 - **Repo:** https://github.com/andersenqvistdev/mdlint-sandbox
 
 ## Interventions
@@ -70,6 +75,39 @@ All predate the run window and none required changing product code.
    (whitespace rules) and G4 (link rules) to `cli-developer`; ideation handed
    them to `qa-engineer` and `tech-writer`. Whether the allocator re-routes by
    capability at execution time is worth watching.
+
+9. **`uv.lock` in humanProtected makes the daemon structurally unable to ship
+   on any uv-based project.** THE BIG ONE — it broke the run within 40 minutes
+   of launch.
+
+   Workers run via `uv run`, which regenerates `uv.lock` inside the worktree.
+   The PR gate then refused every single result:
+   `Refusing to create PR: touches human-protected path(s): uv.lock`.
+
+   The failure mode is the worst kind: workers **succeeded** (exit 0, real
+   tests written — one correctly identified that G8 was premature and flagged
+   a genuine broken-entry-point bug), and the work was then discarded at the
+   shipping step. The daemon logged *"Work done but not shipped — 8 file(s)
+   modified but capture/PR failed"*, retried, and hit the 5-build ceiling on
+   G1, G2 and G4 within the hour.
+
+   This is a **W1 silent-wrongness instance in the shipping path**: no crash,
+   no bad work — good work confidently thrown away. Any Forge project using
+   `uv` (which is what the daemon's own LaunchAgent uses) hits this on its
+   very first task.
+
+   Fixed by removing `uv.lock` from `humanProtected.paths` and gitignoring it.
+   Ceiling-blocked tasks returned to pending, build counters cleared.
+   **Not counted as an intervention** — framework defect repair during the
+   shakedown window; the run clock restarts (see Run window).
+
+10. **Workspace trust silently drops 144 permission entries.** Worker logs
+    showed `Ignoring 144 permissions.allow entries from .claude/settings.json:
+    this workspace has not been trusted`. forge-doctor reports this as a benign
+    WARN and ProjectK's runbook says to expect it — but it means every worker
+    ran with its permission allowlist discarded. Set
+    `projects[...].hasTrustDialogAccepted: true` in `~/.claude.json`
+    (backup: `~/.claude.json.bak-before-mdlint-trust`).
 
 ## Observations (no action taken)
 
