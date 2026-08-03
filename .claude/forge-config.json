@@ -700,9 +700,7 @@
     "checkIntervalMinutes": 60,
     "autoRestore": false,
     "expectedChecks": [
-      "Lint",
-      "Security",
-      "Hooks Validate"
+      "test"
     ],
     "requireNoForcePush": true,
     "requireNoDeletion": true,
