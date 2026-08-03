@@ -715,8 +715,7 @@
       "CLAUDE.md",
       "forge-config.json",
       ".claude/settings.json",
-      "pyproject.toml",
-      "uv.lock"
+      "pyproject.toml"
     ],
     "requireApprovalFor": []
   },
