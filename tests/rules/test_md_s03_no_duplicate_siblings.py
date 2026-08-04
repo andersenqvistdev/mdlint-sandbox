@@ -32,3 +32,19 @@ def test_fails_for_duplicate_top_level_headings():
 
     assert len(violations) == 1
     assert violations[0].line == 2
+
+
+def test_passes_for_a_single_heading():
+    assert check("doc.md", ["# Only heading"]) == []
+
+
+def test_detects_duplicate_siblings_even_after_a_skipped_level():
+    # "### Sub" jumps straight from H1 to H3 (MDS02's concern, not this rule's),
+    # but the two "Sub" headings are still siblings under "Title" and must be
+    # caught as duplicates.
+    lines = ["# Title", "### Sub", "### Sub"]
+
+    violations = check("doc.md", lines)
+
+    assert len(violations) == 1
+    assert violations[0].line == 3
