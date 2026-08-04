@@ -36,3 +36,7 @@ def test_fails_when_first_heading_is_not_top_level():
 
 def test_empty_document_has_no_violations():
     assert check("doc.md", []) == []
+
+
+def test_document_with_only_blank_lines_has_no_violations():
+    assert check("doc.md", ["", "   ", "\t"]) == []

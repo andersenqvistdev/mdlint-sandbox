@@ -27,3 +27,15 @@ def test_fails_when_a_level_is_skipped():
 
 def test_first_heading_alone_never_violates():
     assert check("doc.md", ["### Only heading"]) == []
+
+
+def test_document_with_no_headings_has_no_violations():
+    assert check("doc.md", ["plain text", "", "more text"]) == []
+
+
+def test_flags_each_skipped_jump_independently():
+    lines = ["# Title", "### Too deep", "##### Way too deep"]
+
+    violations = check("doc.md", lines)
+
+    assert [v.line for v in violations] == [2, 3]
