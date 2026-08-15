@@ -10,15 +10,22 @@ from dataclasses import dataclass
 from mdlint.violation import Violation
 
 RuleCheck = Callable[[str, list[str]], Iterable[Violation]]
+RuleFix = Callable[[list[str]], list[str]]
 
 
 @dataclass(frozen=True)
 class Rule:
-    """A single lint rule: a stable id, a name, and its check function."""
+    """A single lint rule: a stable id, a name, its check, and an optional fix.
+
+    ``fix`` is only set for rules whose violations have one unambiguous safe
+    correction (e.g. normalizing a list marker). Rules where a fix would have
+    to guess at intent (e.g. a missing H1 heading) leave it unset.
+    """
 
     id: str
     name: str
     check: RuleCheck
+    fix: RuleFix | None = None
 
 
 _REGISTRY: dict[str, Rule] = {}
