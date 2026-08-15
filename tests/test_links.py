@@ -60,3 +60,12 @@ def test_drops_optional_link_title():
     links = list(iter_links(['[docs](guide.md "Guide")']))
 
     assert links == [Link(text="docs", target="guide.md", line=1, is_image=False)]
+
+
+def test_mask_code_spans_leaves_unclosed_backtick_runs_untouched():
+    line = "`a ``b"
+
+    masked = mask_code_spans(line)
+
+    assert masked == line
+    assert len(masked) == len(line)
