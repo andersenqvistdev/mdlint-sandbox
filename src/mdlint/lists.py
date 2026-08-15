@@ -66,3 +66,19 @@ def iter_ordered_list_items(lines: list[str]) -> Iterator[OrderedListItem]:
         if not match:
             continue
         yield OrderedListItem(number=int(match.group(2)), indent=len(match.group(1)), line=lineno)
+
+
+def unordered_marker_span(line: str) -> tuple[int, int] | None:
+    """Return the (start, end) span of a bullet marker character, or None."""
+    match = _UNORDERED_RE.match(line)
+    if not match:
+        return None
+    return match.span(2)
+
+
+def ordered_number_span(line: str) -> tuple[int, int] | None:
+    """Return the (start, end) span of an ordered list item's number, or None."""
+    match = _ORDERED_RE.match(line)
+    if not match:
+        return None
+    return match.span(2)

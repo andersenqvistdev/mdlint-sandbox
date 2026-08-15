@@ -39,4 +39,30 @@ def check(file: str, lines: list[str]) -> list[Violation]:
     return violations
 
 
-register(Rule(id=RULE_ID, name="no-bare-urls", check=check))
+def fix(lines: list[str]) -> list[str]:
+    """Wrap every bare http(s) URL in <> so it becomes an autolink."""
+    fixed = list(lines)
+    for lineno, masked in iter_masked_lines(lines):
+        cleaned = mask_links(masked)
+        cleaned = _AUTOLINK_RE.sub(lambda m: " " * len(m.group(0)), cleaned)
+        idx = lineno - 1
+        line = fixed[idx]
+        pieces = []
+        pos = 0
+        for match in _BARE_URL_RE.finditer(cleaned):
+            url = match.group(0).rstrip(_TRAILING_PUNCTUATION)
+            if not url:
+                continue
+            start = match.start()
+            end = start + len(url)
+            pieces.append(line[pos:start])
+            pieces.append(f"<{line[start:end]}>")
+            pos = end
+        if not pieces:
+            continue
+        pieces.append(line[pos:])
+        fixed[idx] = "".join(pieces)
+    return fixed
+
+
+register(Rule(id=RULE_ID, name="no-bare-urls", check=check, fix=fix))
