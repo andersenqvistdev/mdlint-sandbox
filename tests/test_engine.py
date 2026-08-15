@@ -10,6 +10,12 @@ def test_registers_all_three_structure_rules():
     assert {"MDS01", "MDS02", "MDS03"} <= ids
 
 
+def test_registers_all_three_link_rules():
+    ids = {rule.id for rule in all_rules()}
+
+    assert {"MDL01", "MDL02", "MDL03"} <= ids
+
+
 def test_clean_document_has_no_violations():
     lines = ["# Title", "", "## Section"]
 
