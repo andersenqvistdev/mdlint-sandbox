@@ -1,0 +1,1674 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Forge Dashboard - Real-time company operations monitoring">
+  <title>Forge Dashboard</title>
+
+  <!-- External CSS (for larger deployments) -->
+  <link rel="stylesheet" href="static/css/dashboard.css">
+
+  <!-- Inline Critical CSS -->
+  <style>
+    /* Critical path CSS for immediate rendering */
+    :root {
+      --bg-primary: #0f172a;
+      --bg-secondary: #1e293b;
+      --bg-tertiary: #334155;
+      --text-primary: #f8fafc;
+      --text-secondary: #94a3b8;
+      --text-muted: #64748b;
+      --status-success: #22c55e;
+      --status-warning: #eab308;
+      --status-error: #ef4444;
+      --status-info: #3b82f6;
+      --accent-primary: #6366f1;
+      --accent-secondary: #8b5cf6;
+      --border-color: #334155;
+      --sidebar-width: 240px;
+      --header-height: 64px;
+      --footer-height: 48px;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background-color: var(--bg-primary);
+      color: var(--text-primary);
+      line-height: 1.5;
+      min-height: 100vh;
+    }
+
+    .dashboard {
+      display: grid;
+      grid-template-rows: var(--header-height) 1fr var(--footer-height);
+      grid-template-columns: var(--sidebar-width) 1fr;
+      grid-template-areas: "header header" "sidebar main" "footer footer";
+      min-height: 100vh;
+    }
+
+    .header { grid-area: header; }
+    .sidebar { grid-area: sidebar; }
+    .main { grid-area: main; }
+    .footer { grid-area: footer; }
+
+    .panel { display: none; }
+    .panel--active { display: block; }
+
+    /* Org Tree */
+    .org-tree__header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; padding-bottom: 12px; border-bottom: 1px solid var(--border-color); }
+    .org-node { position: relative; }
+    .org-node__card { display: flex; align-items: center; gap: 12px; padding: 10px 14px; margin: 4px 0; border-radius: 8px; background: var(--bg-secondary); border: 1px solid var(--border-color); transition: border-color 0.2s; }
+    .org-node__card:hover { border-color: var(--accent-primary); }
+    .org-node__avatar { width: 36px; height: 36px; border-radius: 50%; background: var(--bg-tertiary); display: flex; align-items: center; justify-content: center; font-size: 0.8rem; font-weight: 600; flex-shrink: 0; color: var(--text-primary); }
+    .org-node__info { flex: 1; min-width: 0; }
+    .org-node__title { font-weight: 600; font-size: 0.9rem; }
+    .org-node__meta { display: flex; align-items: center; gap: 8px; margin-top: 2px; }
+    .org-node__children { margin-left: 24px; padding-left: 20px; border-left: 2px solid var(--border-color); }
+    .badge--accent { background: rgba(99,102,241,0.15); color: var(--accent-primary); }
+  </style>
+</head>
+<body>
+  <div class="dashboard" id="dashboard">
+    <!-- ===== HEADER ===== -->
+    <header class="header">
+      <div class="header__title">
+        <div class="header__logo">F</div>
+        <h1>Forge Dashboard</h1>
+      </div>
+      <div class="header__status">
+        <div class="connection-status">
+          <span class="connection-status__indicator" id="connection-indicator"></span>
+          <span id="connection-text">Connected</span>
+        </div>
+        <div class="last-update">
+          Last updated: <span id="last-update-time">--:--:--</span>
+        </div>
+      </div>
+    </header>
+
+    <!-- ===== SIDEBAR ===== -->
+    <nav class="sidebar">
+      <div class="nav">
+        <button class="nav__item nav__item--active" data-panel="health">
+          <svg class="nav__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M22 12h-4l-3 9L9 3l-3 9H2"/>
+          </svg>
+          Health
+        </button>
+        <button class="nav__item" data-panel="tasks">
+          <svg class="nav__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
+            <line x1="16" y1="2" x2="16" y2="6"/>
+            <line x1="8" y1="2" x2="8" y2="6"/>
+            <line x1="3" y1="10" x2="21" y2="10"/>
+          </svg>
+          Tasks
+          <span class="nav__badge" id="tasks-badge" style="display: none;">0</span>
+        </button>
+        <button class="nav__item" data-panel="org">
+          <svg class="nav__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+            <circle cx="9" cy="7" r="4"/>
+            <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
+            <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+          </svg>
+          Organization
+        </button>
+        <button class="nav__item" data-panel="roadmap">
+          <svg class="nav__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polygon points="12 2 2 7 12 12 22 7 12 2"/>
+            <polyline points="2 17 12 22 22 17"/>
+            <polyline points="2 12 12 17 22 12"/>
+          </svg>
+          Roadmap
+        </button>
+        <button class="nav__item" data-panel="results">
+          <svg class="nav__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+            <polyline points="14 2 14 8 20 8"/>
+            <line x1="16" y1="13" x2="8" y2="13"/>
+            <line x1="16" y1="17" x2="8" y2="17"/>
+            <polyline points="10 9 9 9 8 9"/>
+          </svg>
+          Results
+          <span class="nav__badge" id="results-badge" style="display: none;">0</span>
+        </button>
+        <button class="nav__item" data-panel="errors">
+          <svg class="nav__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="10"/>
+            <line x1="12" y1="8" x2="12" y2="12"/>
+            <line x1="12" y1="16" x2="12.01" y2="16"/>
+          </svg>
+          Errors
+          <span class="nav__badge" id="errors-badge" style="display: none;">0</span>
+        </button>
+        <button class="nav__item" data-panel="daemon">
+          <svg class="nav__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="3"/>
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+          </svg>
+          Daemon
+          <span class="nav__badge" id="daemon-badge" style="display: none;">0</span>
+        </button>
+        <button class="nav__item" data-panel="g7-progress">
+          <svg class="nav__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+          </svg>
+          G7 Autonomy
+        </button>
+        <button class="nav__item" data-panel="autonomy">
+          <svg class="nav__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="10"/>
+            <path d="M12 8v4l3 3"/>
+          </svg>
+          Autonomy
+        </button>
+      </div>
+    </nav>
+
+    <!-- ===== MAIN CONTENT ===== -->
+    <main class="main">
+
+      <!-- Health Panel -->
+      <section class="panel panel--active" id="health-panel">
+        <div class="panel__header">
+          <h2 class="panel__title">System Health</h2>
+          <div class="panel__actions">
+            <button class="btn btn--secondary btn--sm" id="refresh-health">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="23 4 23 10 17 10"/>
+                <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+              </svg>
+              Refresh
+            </button>
+          </div>
+        </div>
+
+        <div class="grid grid--2">
+          <!-- Health Gauge -->
+          <div class="card">
+            <div class="card__header">
+              <h3 class="card__title">Overall Health Score</h3>
+            </div>
+            <div class="card__body">
+              <div class="health-gauge">
+                <div class="health-gauge__circle">
+                  <svg class="health-gauge__svg" viewBox="0 0 180 180">
+                    <circle class="health-gauge__background" cx="90" cy="90" r="80"/>
+                    <circle class="health-gauge__progress" id="health-progress" cx="90" cy="90" r="80"/>
+                  </svg>
+                  <div class="health-gauge__value">
+                    <div class="health-gauge__score" id="health-score">--</div>
+                    <div class="health-gauge__label">/ 100</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Factor Breakdown -->
+          <div class="card">
+            <div class="card__header">
+              <h3 class="card__title">Health Factors</h3>
+            </div>
+            <div class="card__body" id="health-factors">
+              <div class="empty-state"><div class="empty-state__title">Loading...</div></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Autonomy Health Widget -->
+        <div class="card mt-lg" id="autonomy-health-widget">
+          <div class="card__header">
+            <h3 class="card__title">Autonomy Health</h3>
+            <span class="badge badge--info">Real-time</span>
+          </div>
+          <div class="card__body">
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:24px;margin-bottom:20px">
+              <div>
+                <div style="color:var(--text-muted);font-size:0.7rem;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:6px">Current Success Rate</div>
+                <div style="font-size:2.2rem;font-weight:700;line-height:1" id="sr-current-rate">--</div>
+                <div style="color:var(--text-muted);font-size:0.75rem;margin-top:4px" id="sr-current-counts">Loading...</div>
+              </div>
+              <div>
+                <div style="color:var(--text-muted);font-size:0.7rem;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:6px">7-Day Success Rate</div>
+                <div style="font-size:2.2rem;font-weight:700;line-height:1" id="sr-rate-7d">--</div>
+                <div style="color:var(--text-muted);font-size:0.75rem;margin-top:4px" id="sr-7d-counts">Loading...</div>
+              </div>
+              <div>
+                <div style="color:var(--text-muted);font-size:0.7rem;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:6px">Circuit Breaker</div>
+                <div style="font-size:1.3rem;font-weight:600;line-height:1.3" id="sr-cb-status">--</div>
+                <div style="color:var(--text-muted);font-size:0.75rem;margin-top:4px" id="sr-cb-detail">Checking...</div>
+              </div>
+            </div>
+            <div style="border-top:1px solid var(--border-color);margin-bottom:16px"></div>
+            <div>
+              <div style="color:var(--text-muted);font-size:0.7rem;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:10px;font-weight:600">Top Failure Reasons (7d)</div>
+              <div id="sr-failure-reasons">
+                <div style="color:var(--text-muted);font-size:0.85rem">Loading...</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </section>
+
+      <!-- Tasks Panel -->
+      <section class="panel" id="tasks-panel">
+        <div class="panel__header">
+          <h2 class="panel__title">Task Management</h2>
+        </div>
+
+        <!-- Task Stats -->
+        <div class="grid grid--4">
+          <div class="stat-card">
+            <div class="stat-card__header">
+              <div class="stat-card__icon stat-card__icon--pending">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <circle cx="12" cy="12" r="10"/>
+                  <polyline points="12 6 12 12 16 14"/>
+                </svg>
+              </div>
+            </div>
+            <div class="stat-card__value" id="tasks-pending">--</div>
+            <div class="stat-card__label">Pending</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-card__header">
+              <div class="stat-card__icon stat-card__icon--active">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/>
+                </svg>
+              </div>
+            </div>
+            <div class="stat-card__value" id="tasks-active">--</div>
+            <div class="stat-card__label">In Progress</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-card__header">
+              <div class="stat-card__icon stat-card__icon--blocked">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+                  <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+                </svg>
+              </div>
+            </div>
+            <div class="stat-card__value" id="tasks-blocked">--</div>
+            <div class="stat-card__label">Blocked</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-card__header">
+              <div class="stat-card__icon stat-card__icon--completed">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <polyline points="20 6 9 17 4 12"/>
+                </svg>
+              </div>
+            </div>
+            <div class="stat-card__value" id="tasks-completed">--</div>
+            <div class="stat-card__label">Completed</div>
+          </div>
+        </div>
+
+        <!-- Velocity Section -->
+        <div class="card mt-lg">
+          <div class="card__header">
+            <h3 class="card__title">Velocity Metrics</h3>
+            <span class="badge badge--info">Last 7 days</span>
+          </div>
+          <div class="card__body">
+            <div class="grid grid--3">
+              <div class="economics-item">
+                <div class="economics-item__value" id="velocity-daily">--</div>
+                <div class="economics-item__label">Tasks/Day</div>
+              </div>
+              <div class="economics-item">
+                <div class="economics-item__value" id="velocity-weekly">--</div>
+                <div class="economics-item__label">Tasks/Week</div>
+              </div>
+              <div class="economics-item">
+                <div class="economics-item__value" id="velocity-trend">--</div>
+                <div class="economics-item__label">Trend</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Organization Panel -->
+      <section class="panel" id="org-panel">
+        <div class="panel__header">
+          <h2 class="panel__title">Organization</h2>
+        </div>
+
+        <!-- Current Work -->
+        <div class="card">
+          <div class="card__header">
+            <h3 class="card__title">Current Work</h3>
+          </div>
+          <div class="card__body">
+            <div id="current-work">
+              <div class="current-task" id="current-task">
+                <div class="current-task__header">
+                  <span class="badge badge--info" id="current-task-status">Loading...</span>
+                  <span class="current-task__id" id="current-task-id"></span>
+                </div>
+                <h4 class="current-task__title" id="current-task-title">No active task</h4>
+                <p class="current-task__description" id="current-task-description">Waiting for work...</p>
+                <div class="current-task__meta">
+                  <span id="current-task-assignee"></span>
+                  <span id="current-task-started"></span>
+                </div>
+              </div>
+
+              <!-- Activity Feed -->
+              <div class="activity-feed" id="activity-feed">
+                <h4 class="activity-feed__title">Recent Activity</h4>
+                <ul class="activity-feed__list" id="activity-list">
+                  <li class="activity-feed__item">
+                    <span class="activity-feed__time">--:--</span>
+                    <span class="activity-feed__text">Waiting for activity...</span>
+                  </li>
+                </ul>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Departments -->
+        <div id="departments-container">
+          <div class="empty-state"><div class="empty-state__title">Loading organization...</div></div>
+        </div>
+      </section>
+
+      <!-- Roadmap Panel -->
+      <section class="panel" id="roadmap-panel">
+        <div class="panel__header">
+          <h2 class="panel__title">Roadmap & Goals</h2>
+          <div class="panel__actions">
+            <button class="btn btn--secondary btn--sm" id="refresh-roadmap">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="23 4 23 10 17 10"/>
+                <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+              </svg>
+              Refresh
+            </button>
+          </div>
+        </div>
+
+        <!-- Strategic Goals -->
+        <div class="card">
+          <div class="card__header">
+            <h3 class="card__title">Strategic Goals</h3>
+            <span class="badge badge--info" id="goals-period">Loading...</span>
+          </div>
+          <div class="card__body">
+            <div id="goals-container">
+              <div class="empty-state">
+                <div class="empty-state__title">Loading goals...</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Phase Progress -->
+        <div class="card mt-lg">
+          <div class="card__header">
+            <h3 class="card__title">Phase Progress</h3>
+            <span class="badge badge--info" id="phases-summary">Loading...</span>
+          </div>
+          <div class="card__body">
+            <div class="phase-list" id="phase-list">
+              <div class="empty-state">
+                <div class="empty-state__title">Loading phases...</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Results Panel -->
+      <section class="panel" id="results-panel">
+        <div class="panel__header">
+          <h2 class="panel__title">Task Results</h2>
+          <div class="panel__actions">
+            <select id="results-filter" style="background:var(--bg-tertiary);color:var(--text-primary);border:1px solid var(--border-color);border-radius:6px;padding:4px 8px;font-size:0.8rem;">
+              <option value="all">All</option>
+              <option value="completed">Completed</option>
+              <option value="failed">Failed</option>
+              <option value="escalated">Escalated</option>
+            </select>
+            <button class="btn btn--secondary btn--sm" id="refresh-results">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="23 4 23 10 17 10"/>
+                <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+              </svg>
+              Refresh
+            </button>
+          </div>
+        </div>
+
+        <!-- Results Summary Stats -->
+        <div class="grid grid--4">
+          <div class="stat-card">
+            <div class="stat-card__header">
+              <div class="stat-card__icon stat-card__icon--completed">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <polyline points="20 6 9 17 4 12"/>
+                </svg>
+              </div>
+            </div>
+            <div class="stat-card__value" id="results-completed">0</div>
+            <div class="stat-card__label">Completed</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-card__header">
+              <div class="stat-card__icon stat-card__icon--blocked">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <circle cx="12" cy="12" r="10"/>
+                  <line x1="15" y1="9" x2="9" y2="15"/>
+                  <line x1="9" y1="9" x2="15" y2="15"/>
+                </svg>
+              </div>
+            </div>
+            <div class="stat-card__value" id="results-failed">0</div>
+            <div class="stat-card__label">Failed</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-card__header">
+              <div class="stat-card__icon stat-card__icon--pending">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+                  <line x1="12" y1="9" x2="12" y2="13"/>
+                  <line x1="12" y1="17" x2="12.01" y2="17"/>
+                </svg>
+              </div>
+            </div>
+            <div class="stat-card__value" id="results-escalated">0</div>
+            <div class="stat-card__label">Escalated</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-card__header">
+              <div class="stat-card__icon stat-card__icon--active">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                  <polyline points="14 2 14 8 20 8"/>
+                </svg>
+              </div>
+            </div>
+            <div class="stat-card__value" id="results-total">0</div>
+            <div class="stat-card__label">Total</div>
+          </div>
+        </div>
+
+        <!-- Results Timeline -->
+        <div class="card mt-lg">
+          <div class="card__header">
+            <h3 class="card__title">Task Outcomes</h3>
+            <span class="badge badge--info" id="results-showing">0 results</span>
+          </div>
+          <div class="card__body">
+            <div id="results-timeline">
+              <div class="empty-state">
+                <div class="empty-state__title">Loading results...</div>
+                <div class="empty-state__description">Task outcomes will appear here after tasks complete</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Result Detail (hidden by default) -->
+        <div class="card mt-lg" id="result-detail-card" style="display:none;">
+          <div class="card__header">
+            <h3 class="card__title">Result Detail</h3>
+            <button class="btn btn--secondary btn--sm" id="close-result-detail" style="font-size:0.75rem;">Close</button>
+          </div>
+          <div class="card__body" id="result-detail-body"></div>
+        </div>
+      </section>
+
+      <!-- Errors Panel -->
+      <section class="panel" id="errors-panel">
+        <div class="panel__header">
+          <h2 class="panel__title">Errors & Escalations</h2>
+        </div>
+
+        <div class="grid grid--2">
+          <!-- Escalations Table -->
+          <div class="card">
+            <div class="card__header">
+              <h3 class="card__title">Active Risks</h3>
+              <span class="badge badge--error" id="escalation-count">--</span>
+            </div>
+            <div class="card__body">
+              <div id="risks-container">
+                <div class="empty-state"><div class="empty-state__title">Loading...</div></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Error Timeline -->
+          <div class="card">
+            <div class="card__header">
+              <h3 class="card__title">Recent Errors</h3>
+            </div>
+            <div class="card__body">
+              <div class="timeline" id="error-timeline">
+                <div class="empty-state"><div class="empty-state__title">Loading...</div></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Daemon Panel -->
+      <section class="panel" id="daemon-panel">
+        <div class="panel__header">
+          <h2 class="panel__title">Daemon Activity</h2>
+          <div class="panel__actions">
+            <button class="btn btn--secondary btn--sm" id="refresh-daemon">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="23 4 23 10 17 10"/>
+                <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+              </svg>
+              Refresh
+            </button>
+          </div>
+        </div>
+
+        <!-- Daemon Status -->
+        <div class="card">
+          <div class="card__body">
+            <div class="daemon-status-bar">
+              <div class="daemon-status-bar__item">
+                <span class="daemon-status-indicator" id="daemon-running-indicator"></span>
+                <span id="daemon-running-text">Checking...</span>
+              </div>
+              <div class="daemon-status-bar__item">
+                <span class="text-muted">PID:</span>
+                <span id="daemon-pid-value">--</span>
+              </div>
+              <div class="daemon-status-bar__item">
+                <span class="text-muted">Uptime:</span>
+                <span class="daemon-uptime" id="daemon-uptime-value">--</span>
+              </div>
+              <div class="daemon-status-bar__item">
+                <span class="text-muted">Heartbeat:</span>
+                <span id="daemon-heartbeat-value">--</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Daemon Stats -->
+        <div class="grid grid--4 mt-md">
+          <div class="stat-card">
+            <div class="stat-card__header">
+              <div class="stat-card__icon stat-card__icon--completed">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <polyline points="20 6 9 17 4 12"/>
+                </svg>
+              </div>
+            </div>
+            <div class="stat-card__value" id="daemon-completed">0</div>
+            <div class="stat-card__label">Completed</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-card__header">
+              <div class="stat-card__icon stat-card__icon--blocked">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <circle cx="12" cy="12" r="10"/>
+                  <line x1="15" y1="9" x2="9" y2="15"/>
+                  <line x1="9" y1="9" x2="15" y2="15"/>
+                </svg>
+              </div>
+            </div>
+            <div class="stat-card__value" id="daemon-failed">0</div>
+            <div class="stat-card__label">Failed</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-card__header">
+              <div class="stat-card__icon stat-card__icon--active">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M22 12h-4l-3 9L9 3l-3 9H2"/>
+                </svg>
+              </div>
+            </div>
+            <div class="stat-card__value" id="daemon-success-rate">--</div>
+            <div class="stat-card__label">Success Rate</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-card__header">
+              <div class="stat-card__icon stat-card__icon--pending">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <polyline points="23 4 23 10 17 10"/>
+                  <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+                </svg>
+              </div>
+            </div>
+            <div class="stat-card__value" id="daemon-current-cycle">0</div>
+            <div class="stat-card__label">Current Cycle</div>
+          </div>
+        </div>
+
+        <div class="grid grid--2 mt-lg">
+          <!-- Activity Timeline -->
+          <div class="card">
+            <div class="card__header">
+              <h3 class="card__title">Activity Timeline</h3>
+              <span class="badge badge--info" id="daemon-events-count">0 events</span>
+            </div>
+            <div class="card__body">
+              <div class="timeline daemon-timeline" id="daemon-timeline">
+                <div class="timeline__item">
+                  <div class="timeline__marker timeline__marker--info"></div>
+                  <div class="timeline__time">--:--</div>
+                  <div class="timeline__content">
+                    <div class="timeline__title">Waiting for daemon data...</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Strategic Planning -->
+          <div class="card">
+            <div class="card__header">
+              <h3 class="card__title">Strategic Planning</h3>
+            </div>
+            <div class="card__body" id="daemon-strategic-info">
+              <div class="empty-state">
+                <div class="empty-state__title">No strategic planning data</div>
+                <div class="empty-state__description">Strategic planning runs every 10 cycles</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- G7 Autonomy Progress Panel -->
+      <section class="panel" id="g7-progress-panel">
+        <div class="panel__header">
+          <h2 class="panel__title">G7 Autonomy Progress</h2>
+          <div class="panel__actions">
+            <button class="btn btn--secondary btn--sm" id="refresh-g7">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="23 4 23 10 17 10"/>
+                <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+              </svg>
+              Refresh
+            </button>
+          </div>
+        </div>
+
+        <!-- Progress toward 168-hour target -->
+        <div class="card" style="margin-bottom: 16px;">
+          <div class="card__header"><h3 class="card__title">7-Day Uptime Goal (168 hours)</h3></div>
+          <div class="card__body">
+            <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+              <span class="text-muted">Current session:</span>
+              <span id="g7-current-uptime">--</span>
+            </div>
+            <div style="margin-bottom: 8px;">
+              <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
+                <span class="text-muted">Progress</span>
+                <span id="g7-progress-pct">--%</span>
+              </div>
+              <div class="progress-bar">
+                <div class="progress-bar__fill" id="g7-progress-bar" style="width: 0%; background: var(--status-info);"></div>
+              </div>
+            </div>
+            <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+              <span class="text-muted">Longest streak:</span>
+              <span id="g7-longest-streak">--</span>
+            </div>
+            <div style="display: flex; justify-content: space-between;">
+              <span class="text-muted">Daemon status:</span>
+              <span id="g7-daemon-status">--</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 7-day success rate -->
+        <div class="card">
+          <div class="card__header"><h3 class="card__title">7-Day Task Success Rate</h3></div>
+          <div class="card__body">
+            <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+              <span class="text-muted">Success rate:</span>
+              <span id="g7-success-rate" style="font-size: 1.5rem; font-weight: 700;">--%</span>
+            </div>
+            <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+              <span class="text-muted">Completed (7d):</span>
+              <span id="g7-completed-7d">--</span>
+            </div>
+            <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+              <span class="text-muted">Failed (7d):</span>
+              <span id="g7-failed-7d">--</span>
+            </div>
+            <div style="margin-top: 8px;">
+              <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
+                <span class="text-muted">Success rate bar</span>
+                <span id="g7-success-rate-pct">--%</span>
+              </div>
+              <div class="progress-bar">
+                <div class="progress-bar__fill progress-bar__fill--success" id="g7-success-bar" style="width: 0%;"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Autonomy Metrics Panel -->
+      <section class="panel" id="autonomy-panel">
+        <div class="panel__header">
+          <h2 class="panel__title">Autonomy Metrics</h2>
+          <div class="panel__actions">
+            <button class="btn btn--secondary btn--sm" id="refresh-autonomy">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="23 4 23 10 17 10"/>
+                <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+              </svg>
+              Refresh
+            </button>
+          </div>
+        </div>
+
+        <div class="grid grid--2">
+          <!-- Autonomy Rate Card -->
+          <div class="card">
+            <div class="card__header"><h3 class="card__title">Autonomy Rate</h3></div>
+            <div class="card__body">
+              <div style="text-align: center; padding: 16px 0;">
+                <div id="aw-autonomy-pct" style="font-size: 3rem; font-weight: 700; color: var(--status-success);">--%</div>
+                <div class="text-muted" style="margin-top: 8px;">tasks resolved without human intervention</div>
+              </div>
+              <div style="display: flex; justify-content: space-between; margin-top: 8px;">
+                <span class="text-muted">Completed (session):</span>
+                <span id="aw-tasks-completed">--</span>
+              </div>
+              <div style="display: flex; justify-content: space-between; margin-top: 4px;">
+                <span class="text-muted">Escalated (session):</span>
+                <span id="aw-tasks-escalated">--</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Time Since Last Human Card -->
+          <div class="card">
+            <div class="card__header"><h3 class="card__title">Human-Free Streak</h3></div>
+            <div class="card__body">
+              <div style="text-align: center; padding: 16px 0;">
+                <div id="aw-since-human" style="font-size: 2rem; font-weight: 700; color: var(--text-primary);">--</div>
+                <div class="text-muted" style="margin-top: 8px;">since last human intervention</div>
+              </div>
+              <div style="display: flex; justify-content: space-between; margin-top: 8px;">
+                <span class="text-muted">Last escalation:</span>
+                <span id="aw-last-escalation" class="text-muted" style="font-size: 0.8rem;">--</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Active Recovery Card -->
+          <div class="card">
+            <div class="card__header"><h3 class="card__title">Active Recovery Attempts</h3></div>
+            <div class="card__body">
+              <div style="text-align: center; padding: 16px 0;">
+                <div id="aw-recovery-count" style="font-size: 3rem; font-weight: 700; color: var(--text-primary);">--</div>
+                <div class="text-muted" style="margin-top: 8px;">tasks in autonomous recovery</div>
+              </div>
+              <div id="aw-recovery-status" style="margin-top: 8px; font-size: 0.85rem; color: var(--text-secondary);"></div>
+            </div>
+          </div>
+
+          <!-- Goal Velocity Card -->
+          <div class="card">
+            <div class="card__header"><h3 class="card__title">Goal Progress Velocity</h3></div>
+            <div class="card__body">
+              <div style="text-align: center; padding: 16px 0;">
+                <div style="display: flex; align-items: baseline; justify-content: center; gap: 4px;">
+                  <span id="aw-velocity" style="font-size: 3rem; font-weight: 700; color: var(--status-info);">--</span>
+                  <span class="text-muted" style="font-size: 1rem;">/day</span>
+                </div>
+                <div class="text-muted" style="margin-top: 8px;">tasks completed per day</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+    </main>
+
+    <!-- ===== FOOTER ===== -->
+    <footer class="footer">
+      <div class="footer__daemon">
+        <span class="footer__daemon-status" id="daemon-status"></span>
+        <span>Daemon: <span id="daemon-status-text">Checking...</span></span>
+      </div>
+      <div class="footer__version">
+        Forge v1.7.0 | Dashboard v0.1.0
+      </div>
+    </footer>
+  </div>
+
+  <!-- JavaScript - loaded at bottom for performance -->
+  <script src="static/js/dashboard.js"></script>
+
+  <!-- Inline fallback for basic functionality -->
+  <script>
+    // Navigation handling
+    document.addEventListener('DOMContentLoaded', function() {
+      const navItems = document.querySelectorAll('.nav__item');
+      const panels = document.querySelectorAll('.panel');
+
+      navItems.forEach(function(item) {
+        item.addEventListener('click', function() {
+          const panelId = this.getAttribute('data-panel');
+
+          // Update active nav item
+          navItems.forEach(function(nav) {
+            nav.classList.remove('nav__item--active');
+          });
+          this.classList.add('nav__item--active');
+
+          // Show corresponding panel
+          panels.forEach(function(panel) {
+            panel.classList.remove('panel--active');
+          });
+          document.getElementById(panelId + '-panel').classList.add('panel--active');
+        });
+      });
+
+      // Update timestamp
+      function updateTimestamp() {
+        const now = new Date();
+        const timeStr = now.toLocaleTimeString('en-US', { hour12: false });
+        document.getElementById('last-update-time').textContent = timeStr;
+      }
+      updateTimestamp();
+
+      // Health gauge calculation
+      function updateHealthGauge(score) {
+        const circumference = 2 * Math.PI * 80;
+        const progress = document.getElementById('health-progress');
+        const offset = circumference - (score / 100) * circumference;
+        progress.style.strokeDasharray = circumference;
+        progress.style.strokeDashoffset = offset;
+
+        // Update color based on score
+        progress.classList.remove('health-gauge__progress--warning', 'health-gauge__progress--critical');
+        if (score < 60) {
+          progress.classList.add('health-gauge__progress--critical');
+        } else if (score < 80) {
+          progress.classList.add('health-gauge__progress--warning');
+        }
+
+        document.getElementById('health-score').textContent = score;
+      }
+
+      // === Health Panel ===
+      function fetchHealth() {
+        fetch('/api/health').then(function(r){return r.json()}).then(function(data) {
+          if (!data.success) return;
+          var score = data.health_score || 0;
+          updateHealthGauge(score);
+          var factors = data.factors || [];
+          var hf = document.getElementById('health-factors');
+          if (factors.length === 0) { hf.innerHTML = '<div class="empty-state"><div class="empty-state__title">No health data</div></div>'; return; }
+          var h = '';
+          factors.forEach(function(f) {
+            var pct = f.score || 0;
+            var fc = pct >= 80 ? 'progress-bar__fill--success' : pct >= 50 ? '' : 'progress-bar__fill--warning';
+            if (f.status === 'critical') fc = 'progress-bar__fill--error';
+            var label = f.name.replace(/_/g, ' ').replace(/\b\w/g, function(c){return c.toUpperCase()});
+            h += '<div class="progress-item"><div class="progress-item__header"><span class="progress-item__label">'+label+'</span><span class="progress-item__value">'+pct+'%</span></div>';
+            h += '<div class="progress-bar"><div class="progress-bar__fill '+fc+'" style="width:'+pct+'%"></div></div>';
+            h += '<div style="color:var(--text-muted);font-size:0.7rem;margin-bottom:8px">'+f.description+'</div></div>';
+          });
+          hf.innerHTML = h;
+        }).catch(function(){});
+      }
+
+      // === Tasks Panel ===
+      function fetchTasks() {
+        fetch('/api/progress').then(function(r){return r.json()}).then(function(data) {
+          if (!data.success) return;
+          var c = data.completion || {};
+          document.getElementById('tasks-pending').textContent = c.pending || 0;
+          document.getElementById('tasks-active').textContent = c.in_progress || 0;
+          document.getElementById('tasks-blocked').textContent = c.blocked || 0;
+          document.getElementById('tasks-completed').textContent = c.completed || 0;
+          var v = data.velocity || {};
+          document.getElementById('velocity-daily').textContent = (v.daily_average || 0).toFixed(1);
+          document.getElementById('velocity-weekly').textContent = Math.round((v.daily_average || 0) * 7);
+          document.getElementById('velocity-trend').textContent = v.completed_today > 0 ? '+'+v.completed_today+' today' : 'No activity';
+          // Update sidebar badge
+          var pending = c.pending || 0;
+          var badge = document.getElementById('tasks-badge');
+          if (pending > 0) { badge.textContent = pending; badge.style.display = ''; } else { badge.style.display = 'none'; }
+        }).catch(function(){});
+      }
+
+      // === Organization Panel ===
+      function fetchOrg() {
+        fetch('/api/org').then(function(r){return r.json()}).then(function(data) {
+          if (!data.success) return;
+          var org = data.data || {};
+          var employees = org.employees || [];
+          var companyName = (org.company && org.company.name) || 'Company';
+          var dc = document.getElementById('departments-container');
+          if (employees.length === 0) { dc.innerHTML = '<div class="empty-state"><div class="empty-state__title">No employees found</div></div>'; return; }
+
+          // Build lookup
+          var byId = {};
+          employees.forEach(function(e) { byId[e.id] = e; });
+
+          // Render tree node recursively
+          function renderNode(emp, depth) {
+            var title = emp.title || emp.name || emp.id;
+            var name = emp.name || emp.id;
+            var dept = emp.department || '';
+            var status = emp.status || 'idle';
+            var initials = name.split(' ').map(function(w){return w[0]}).join('').substring(0,3).toUpperCase();
+            var sc = status==='active'?'employee-card__status--active':status==='idle'?'employee-card__status--idle':'employee-card__status--offline';
+            var deptBadge = dept==='executive'?'badge--accent':dept==='engineering'?'badge--info':dept==='product'?'badge--success':'badge--muted';
+            var tasks = (emp.efficiency && emp.efficiency.tasks_completed) || 0;
+
+            var h = '<div class="org-node">';
+            h += '<div class="org-node__card">';
+            h += '<div class="org-node__avatar" style="'+(depth===0?'width:48px;height:48px;font-size:1rem;background:var(--accent-primary)':'')+'">'+initials+'</div>';
+            h += '<div class="org-node__info">';
+            h += '<div class="org-node__title">'+title+'</div>';
+            h += '<div class="org-node__meta"><span class="badge '+deptBadge+'" style="font-size:0.65rem;padding:1px 6px">'+dept+'</span>';
+            h += ' <span style="color:var(--text-muted);font-size:0.75rem">'+tasks+' tasks</span></div>';
+            h += '</div>';
+            h += '<span class="employee-card__status '+sc+'" style="font-size:0.7rem">'+status.charAt(0).toUpperCase()+status.slice(1)+'</span>';
+            h += '</div>';
+
+            // Find children
+            var children = employees.filter(function(c) { return c.reports_to === emp.id; });
+            var roleOrder = {executive:0,lead:1,senior:2,mid:3};
+            children.sort(function(a,b) { return (roleOrder[a.role]||4) - (roleOrder[b.role]||4); });
+            if (children.length > 0) {
+              h += '<div class="org-node__children">';
+              children.forEach(function(c) { h += renderNode(c, depth+1); });
+              h += '</div>';
+            }
+            h += '</div>';
+            return h;
+          }
+
+          // Find roots (no reports_to)
+          var roots = employees.filter(function(e) { return !e.reports_to; });
+          var h = '<div class="org-tree">';
+          h += '<div class="org-tree__header"><h3 style="margin:0">'+companyName+'</h3><span style="color:var(--text-muted)">'+employees.length+' employees</span></div>';
+          roots.forEach(function(r) { h += renderNode(r, 0); });
+          h += '</div>';
+          dc.innerHTML = h;
+        }).catch(function(){});
+      }
+
+      // === Errors Panel ===
+      function fetchErrors() {
+        fetch('/api/risks').then(function(r){return r.json()}).then(function(data) {
+          if (!data.success) return;
+          var risks = data.risks || [];
+          document.getElementById('escalation-count').textContent = risks.length;
+          var rc = document.getElementById('risks-container');
+          if (risks.length === 0) {
+            rc.innerHTML = '<div class="empty-state"><div class="empty-state__title">No active risks</div><div class="empty-state__description">All systems nominal</div></div>';
+          } else {
+            var h = '<div class="table-wrapper"><table class="table"><thead><tr><th>ID</th><th>Category</th><th>Severity</th><th>Description</th></tr></thead><tbody>';
+            risks.forEach(function(r) {
+              var sb = r.severity==='CRITICAL'?'badge--error':'badge--warning';
+              h += '<tr><td>'+r.risk_id+'</td><td>'+r.category+'</td><td><span class="badge '+sb+'">'+r.severity+'</span></td><td>'+r.title+'</td></tr>';
+            });
+            h += '</tbody></table></div>';
+            rc.innerHTML = h;
+          }
+          var badge = document.getElementById('errors-badge');
+          if (risks.length > 0) { badge.textContent = risks.length; badge.style.display = ''; } else { badge.style.display = 'none'; }
+        }).catch(function(){});
+
+        // Error timeline from daemon failed events
+        fetch('/api/daemon').then(function(r){return r.json()}).then(function(data) {
+          if (!data.success) return;
+          var events = (data.recent_events || []).filter(function(e){return e.type==='task_failed'});
+          var et = document.getElementById('error-timeline');
+          if (events.length === 0) {
+            et.innerHTML = '<div class="empty-state"><div class="empty-state__title">No recent errors</div><div class="empty-state__description">System running clean</div></div>';
+          } else {
+            var h = '';
+            events.slice(0,10).forEach(function(e) {
+              var ts = e.timestamp ? e.timestamp.split('T')[1] || e.timestamp : '--:--';
+              if (ts.length > 8) ts = ts.substring(0,8);
+              h += '<div class="timeline__item"><div class="timeline__marker"></div><div class="timeline__time">'+ts+'</div><div class="timeline__content"><div class="timeline__title">'+e.title+'</div><div class="timeline__description">'+(e.error||'')+'</div></div></div>';
+            });
+            et.innerHTML = h;
+          }
+        }).catch(function(){});
+      }
+
+      // === Daemon Panel ===
+      function fetchDaemon() {
+        fetch('/api/daemon').then(function(r){return r.json()}).then(function(data) {
+          if (!data.success) return;
+          // Status bar
+          var running = data.status === 'running';
+          var indicator = document.getElementById('daemon-running-indicator');
+          var text = document.getElementById('daemon-running-text');
+          indicator.className = 'daemon-status-indicator ' + (running ? 'daemon-status-indicator--running' : 'daemon-status-indicator--stopped');
+          text.textContent = running ? 'Running' : 'Stopped';
+          document.getElementById('daemon-pid-value').textContent = data.pid || '--';
+          // Uptime
+          var up = data.uptime_seconds;
+          if (up != null) {
+            var h = Math.floor(up/3600); var m = Math.floor((up%3600)/60);
+            document.getElementById('daemon-uptime-value').textContent = h+'h '+m+'m';
+          } else { document.getElementById('daemon-uptime-value').textContent = '--'; }
+          // Heartbeat
+          var hb = data.heartbeat_age_seconds;
+          document.getElementById('daemon-heartbeat-value').textContent = hb != null ? hb+'s ago' : '--';
+          // Stats
+          var lt = data.lifetime || {};
+          document.getElementById('daemon-completed').textContent = lt.completed || 0;
+          document.getElementById('daemon-failed').textContent = lt.failed || 0;
+          document.getElementById('daemon-success-rate').textContent = lt.success_rate != null ? (lt.success_rate*100).toFixed(0)+'%' : '--';
+          document.getElementById('daemon-current-cycle').textContent = data.current_cycle || 0;
+          // Footer
+          document.getElementById('daemon-status-text').textContent = running ? 'Running' : 'Stopped';
+          var footer = document.getElementById('daemon-status');
+          footer.className = 'footer__daemon-status ' + (running ? 'footer__daemon-status--running' : 'footer__daemon-status--stopped');
+          // Badge
+          var badge = document.getElementById('daemon-badge');
+          if (!running) { badge.textContent = '!'; badge.style.display = ''; } else { badge.style.display = 'none'; }
+          // Events count
+          var events = data.recent_events || [];
+          document.getElementById('daemon-events-count').textContent = events.length + ' events';
+          // Timeline
+          var tl = document.getElementById('daemon-timeline');
+          if (events.length === 0) {
+            tl.innerHTML = '<div class="empty-state"><div class="empty-state__title">No daemon activity</div></div>';
+          } else {
+            var th = '';
+            events.slice(0,20).forEach(function(e) {
+              var mc = e.type==='task_completed'?'timeline__marker--success':e.type==='task_failed'?'timeline__marker--error':e.type==='strategic_planning'||e.type==='strategic_result'?'timeline__marker--info':'';
+              var ts = e.timestamp ? e.timestamp.split('T')[1] || e.timestamp : '--:--';
+              if (ts.length > 8) ts = ts.substring(0,8);
+              th += '<div class="timeline__item"><div class="timeline__marker '+mc+'"></div><div class="timeline__time">'+ts+'</div><div class="timeline__content"><div class="timeline__title">'+e.title+'</div>';
+              if (e.detail) th += '<div class="timeline__description">'+e.detail+'</div>';
+              th += '</div></div>';
+            });
+            tl.innerHTML = th;
+          }
+          // Strategic planning card
+          var sp = data.strategic_planning;
+          var sc = document.getElementById('daemon-strategic-info');
+          if (sp) {
+            var dur = sp.duration_seconds ? sp.duration_seconds+'s' : '--';
+            sc.innerHTML = '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px"><div><div style="color:var(--text-muted);font-size:0.75rem">Last Run</div><div>'+sp.last_run.split('T')[0]+'</div></div><div><div style="color:var(--text-muted);font-size:0.75rem">Duration</div><div>'+dur+'</div></div><div><div style="color:var(--text-muted);font-size:0.75rem">Initiatives</div><div>'+sp.initiatives_proposed+'</div></div><div><div style="color:var(--text-muted);font-size:0.75rem">Tasks Queued</div><div>'+sp.tasks_queued+'</div></div></div>';
+          } else {
+            sc.innerHTML = '<div class="empty-state"><div class="empty-state__title">No strategic planning data</div><div class="empty-state__description">Runs every 10 daemon cycles</div></div>';
+          }
+        }).catch(function(){});
+      }
+
+      // === Results Panel ===
+      var _resultsCache = [];
+      function fetchResults() {
+        fetch('/api/results').then(function(r){return r.json()}).then(function(data) {
+          if (!data.success) return;
+          _resultsCache = data.results || [];
+          renderResults(_resultsCache);
+        }).catch(function(){});
+      }
+
+      function renderResults(results) {
+        var filter = document.getElementById('results-filter').value;
+        var filtered = filter === 'all' ? results : results.filter(function(r){return r.status === filter});
+
+        // Stats
+        var completed = results.filter(function(r){return r.status==='completed'}).length;
+        var failed = results.filter(function(r){return r.status==='failed'}).length;
+        var escalated = results.filter(function(r){return r.status==='escalated'}).length;
+        document.getElementById('results-completed').textContent = completed;
+        document.getElementById('results-failed').textContent = failed;
+        document.getElementById('results-escalated').textContent = escalated;
+        document.getElementById('results-total').textContent = results.length;
+        document.getElementById('results-showing').textContent = filtered.length + ' results';
+
+        // Badge
+        var badge = document.getElementById('results-badge');
+        if (results.length > 0) { badge.textContent = results.length; badge.style.display = ''; } else { badge.style.display = 'none'; }
+
+        // Timeline
+        var tl = document.getElementById('results-timeline');
+        if (filtered.length === 0) {
+          tl.innerHTML = '<div class="empty-state"><div class="empty-state__title">No results found</div><div class="empty-state__description">'+(results.length>0?'Try changing the filter':'Task outcomes will appear here after tasks complete')+'</div></div>';
+          return;
+        }
+        var h = '';
+        filtered.slice(0,25).forEach(function(r) {
+          var mc = r.status==='completed'?'timeline__marker--success':r.status==='failed'?'timeline__marker--error':'timeline__marker--warning';
+          var icon = r.status==='completed'?'&#x2714;':r.status==='failed'?'&#x2718;':'&#x26A0;';
+          var ts = r.timestamp ? r.timestamp.split('T')[1] || r.timestamp : '--:--';
+          if (ts.length > 8) ts = ts.substring(0,8);
+          var dur = r.duration_seconds ? (r.duration_seconds < 60 ? Math.round(r.duration_seconds)+'s' : Math.floor(r.duration_seconds/60)+'m') : '';
+          var git = r.git || {};
+          var fc = git.files_count || (git.files_changed||[]).length || 0;
+          var ins = git.insertions || 0;
+          var del = git.deletions || 0;
+          var emp = (r.employee||{}).id || '';
+          var gitInfo = fc > 0 ? fc+' files <span style="color:var(--status-success)">+'+ins+'</span> <span style="color:var(--status-error)">-'+del+'</span>' : '';
+          var prUrl = git.pr_url || '';
+          var prLink = prUrl ? ' <a href="'+prUrl+'" target="_blank" style="color:var(--accent-primary);text-decoration:none;font-size:0.75rem">#PR</a>' : '';
+
+          h += '<div class="timeline__item" style="cursor:pointer" data-result-id="'+r.task_id+'">';
+          h += '<div class="timeline__marker '+mc+'"></div>';
+          h += '<div class="timeline__time">'+ts+'</div>';
+          h += '<div class="timeline__content" style="flex:1">';
+          h += '<div style="display:flex;justify-content:space-between;align-items:center">';
+          h += '<div class="timeline__title"><span style="font-weight:700;margin-right:6px">'+r.task_id+'</span>'+icon+' '+(r.title||'No title')+'</div>';
+          h += '<span style="color:var(--text-muted);font-size:0.75rem">'+dur+'</span>';
+          h += '</div>';
+          var meta = [];
+          if (emp) meta.push(emp);
+          if (gitInfo) meta.push(gitInfo);
+          if (prLink) meta.push(prLink);
+          if (r.error) meta.push('<span style="color:var(--status-error)">'+r.error.substring(0,60)+'</span>');
+          if (meta.length > 0) h += '<div style="color:var(--text-muted);font-size:0.75rem;margin-top:2px">'+meta.join(' &middot; ')+'</div>';
+          h += '</div></div>';
+        });
+        tl.innerHTML = h;
+
+        // Click to expand detail
+        tl.querySelectorAll('[data-result-id]').forEach(function(el) {
+          el.addEventListener('click', function() {
+            var id = this.getAttribute('data-result-id');
+            var match = _resultsCache.filter(function(r){return r.task_id===id});
+            if (match.length > 0) showResultDetail(match[0]);
+          });
+        });
+      }
+
+      function showResultDetail(r) {
+        var card = document.getElementById('result-detail-card');
+        var body = document.getElementById('result-detail-body');
+        card.style.display = 'block';
+        var icon = r.status==='completed'?'&#x2714;':r.status==='failed'?'&#x2718;':'&#x26A0;';
+        var sc = r.status==='completed'?'var(--status-success)':r.status==='failed'?'var(--status-error)':'var(--status-warning)';
+        var dur = r.duration_seconds ? (r.duration_seconds < 60 ? Math.round(r.duration_seconds)+'s' : Math.floor(r.duration_seconds/60)+'m '+Math.round(r.duration_seconds%60)+'s') : '--';
+        var git = r.git || {};
+        var emp = r.employee || {};
+        var quality = r.quality || {};
+        var cost = r.cost || {};
+
+        var h = '<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">';
+        h += '<div><div style="color:var(--text-muted);font-size:0.75rem">Task ID</div><div style="font-weight:600">'+r.task_id+'</div></div>';
+        h += '<div><div style="color:var(--text-muted);font-size:0.75rem">Status</div><div style="color:'+sc+';font-weight:600">'+icon+' '+r.status.toUpperCase()+'</div></div>';
+        h += '<div><div style="color:var(--text-muted);font-size:0.75rem">Title</div><div>'+(r.title||'--')+'</div></div>';
+        h += '<div><div style="color:var(--text-muted);font-size:0.75rem">Duration</div><div>'+dur+'</div></div>';
+        h += '<div><div style="color:var(--text-muted);font-size:0.75rem">Employee</div><div>'+(emp.id||'--')+'</div></div>';
+        h += '<div><div style="color:var(--text-muted);font-size:0.75rem">Timestamp</div><div>'+(r.timestamp||'--')+'</div></div>';
+        h += '</div>';
+
+        if (r.error) {
+          h += '<div style="margin-top:12px;padding:8px 12px;background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.3);border-radius:6px;color:var(--status-error);font-size:0.85rem">'+r.error+'</div>';
+        }
+
+        if (git.branch || (git.files_changed && git.files_changed.length > 0)) {
+          h += '<div style="margin-top:16px"><h4 style="font-size:0.85rem;margin-bottom:8px;color:var(--text-secondary)">Git</h4>';
+          h += '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">';
+          if (git.branch) h += '<div><span style="color:var(--text-muted);font-size:0.75rem">Branch</span><div style="font-family:monospace;font-size:0.8rem">'+git.branch+'</div></div>';
+          if (git.commit_hash) h += '<div><span style="color:var(--text-muted);font-size:0.75rem">Commit</span><div style="font-family:monospace;font-size:0.8rem">'+git.commit_hash+'</div></div>';
+          var fc = git.files_count || (git.files_changed||[]).length;
+          h += '<div><span style="color:var(--text-muted);font-size:0.75rem">Changes</span><div><span style="color:var(--status-success)">+'+(git.insertions||0)+'</span> <span style="color:var(--status-error)">-'+(git.deletions||0)+'</span> ('+fc+' files)</div></div>';
+          h += '</div>';
+          if (git.pr_url) h += '<div style="margin-top:6px"><a href="'+git.pr_url+'" target="_blank" style="color:var(--accent-primary);text-decoration:none;font-size:0.8rem">View Pull Request &rarr;</a></div>';
+          if (git.files_changed && git.files_changed.length > 0) {
+            h += '<div style="margin-top:8px;font-family:monospace;font-size:0.75rem;color:var(--text-muted);max-height:120px;overflow-y:auto">';
+            git.files_changed.forEach(function(f){h += '<div>'+f+'</div>';});
+            h += '</div>';
+          }
+          h += '</div>';
+        }
+
+        if (quality.plan_score || quality.revision_count) {
+          h += '<div style="margin-top:16px"><h4 style="font-size:0.85rem;margin-bottom:8px;color:var(--text-secondary)">Quality</h4>';
+          h += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">';
+          h += '<div><span style="color:var(--text-muted);font-size:0.75rem">Plan Score</span><div>'+(quality.plan_score||0)+'</div></div>';
+          h += '<div><span style="color:var(--text-muted);font-size:0.75rem">Revisions</span><div>'+(quality.revision_count||0)+'</div></div>';
+          h += '</div></div>';
+        }
+
+        if (cost.tokens_used || cost.model) {
+          h += '<div style="margin-top:16px"><h4 style="font-size:0.85rem;margin-bottom:8px;color:var(--text-secondary)">Cost</h4>';
+          h += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">';
+          if (cost.tokens_used) h += '<div><span style="color:var(--text-muted);font-size:0.75rem">Tokens</span><div>'+cost.tokens_used.toLocaleString()+'</div></div>';
+          if (cost.model) h += '<div><span style="color:var(--text-muted);font-size:0.75rem">Model</span><div>'+cost.model+'</div></div>';
+          h += '</div></div>';
+        }
+
+        body.innerHTML = h;
+      }
+
+      // Results filter change
+      var rf = document.getElementById('results-filter');
+      if (rf) rf.addEventListener('change', function(){ renderResults(_resultsCache); });
+      // Close detail
+      var cd = document.getElementById('close-result-detail');
+      if (cd) cd.addEventListener('click', function(){ document.getElementById('result-detail-card').style.display='none'; });
+
+      // === Autonomy Health Widget ===
+      function fetchSuccessRate() {
+        // Fetch current rate + failure reasons from daemon (already has lifetime stats + events)
+        var daemonP = fetch('/api/daemon').then(function(r){return r.json()});
+        // Fetch 7-day rate from g7-progress endpoint
+        var g7P = fetch('/api/g7-progress').then(function(r){return r.json()});
+        // Fetch circuit breaker from subsystem-health
+        var cbP = fetch('/api/subsystem-health').then(function(r){return r.json()});
+
+        Promise.all([daemonP, g7P, cbP]).then(function(results) {
+          var daemon = results[0];
+          var g7 = results[1];
+          var subsys = results[2];
+
+          // --- Current success rate ---
+          var lt = (daemon && daemon.lifetime) || {};
+          var completed = lt.completed || 0;
+          var failed = lt.failed || 0;
+          var total = completed + failed;
+          var rate = lt.success_rate;  // 0..1 float
+          var rateEl = document.getElementById('sr-current-rate');
+          if (rateEl) {
+            if (rate != null && total > 0) {
+              var pct = Math.round(rate * 100);
+              var col = pct >= 80 ? 'var(--status-success)' : pct >= 50 ? 'var(--status-warning)' : 'var(--status-error)';
+              rateEl.style.color = col;
+              rateEl.textContent = pct + '%';
+            } else {
+              rateEl.style.color = 'var(--text-muted)';
+              rateEl.textContent = '--';
+            }
+            var countsEl = document.getElementById('sr-current-counts');
+            if (countsEl) countsEl.textContent = completed + ' completed / ' + total + ' attempted';
+          }
+
+          // --- 7-day success rate ---
+          var rate7d = g7 && g7.success_rate_7d;
+          var comp7d = (g7 && g7.tasks_completed_7d) || 0;
+          var fail7d = (g7 && g7.tasks_failed_7d) || 0;
+          var total7d = comp7d + fail7d;
+          var rateEl7d = document.getElementById('sr-rate-7d');
+          if (rateEl7d) {
+            if (rate7d != null) {
+              var col7d = rate7d >= 80 ? 'var(--status-success)' : rate7d >= 50 ? 'var(--status-warning)' : 'var(--status-error)';
+              rateEl7d.style.color = col7d;
+              rateEl7d.textContent = rate7d.toFixed(1) + '%';
+            } else {
+              rateEl7d.style.color = 'var(--text-muted)';
+              rateEl7d.textContent = 'No data';
+            }
+            var counts7dEl = document.getElementById('sr-7d-counts');
+            if (counts7dEl) counts7dEl.textContent = comp7d + ' completed / ' + total7d + ' attempted';
+          }
+
+          // --- Circuit breaker ---
+          var cbSubs = subsys && subsys.subsystems && subsys.subsystems.circuit_breaker;
+          var cbEl = document.getElementById('sr-cb-status');
+          var cbDetailEl = document.getElementById('sr-cb-detail');
+          if (cbEl && cbSubs) {
+            var cbStatus = cbSubs.status || 'unknown';
+            var cbMsg = cbSubs.message || '';
+            var cbLabel, cbColor;
+            if (cbStatus === 'healthy') {
+              cbLabel = 'Closed'; cbColor = 'var(--status-success)';
+            } else if (cbStatus === 'degraded') {
+              cbLabel = 'Half-Open'; cbColor = 'var(--status-warning)';
+            } else if (cbStatus === 'unhealthy') {
+              cbLabel = 'Open (Tripped)'; cbColor = 'var(--status-error)';
+            } else {
+              cbLabel = 'Unknown'; cbColor = 'var(--text-muted)';
+            }
+            cbEl.style.color = cbColor;
+            cbEl.textContent = cbLabel;
+            if (cbDetailEl) cbDetailEl.textContent = cbMsg;
+          } else if (cbEl) {
+            cbEl.style.color = 'var(--text-muted)';
+            cbEl.textContent = 'Unknown';
+            if (cbDetailEl) cbDetailEl.textContent = 'No heartbeat data';
+          }
+
+          // --- Top failure reasons from recent daemon events (7d approximation) ---
+          var events = (daemon && daemon.recent_events) || [];
+          var failedEvents = events.filter(function(e){ return e.type === 'task_failed'; });
+          var reasonCounts = {};
+          failedEvents.forEach(function(e) {
+            var err = (e.error || '').toLowerCase();
+            var key;
+            if (err.indexOf('timeout') !== -1 || err.indexOf('timed out') !== -1) {
+              key = 'Timeout';
+            } else if (err.indexOf('test') !== -1 && (err.indexOf('fail') !== -1 || err.indexOf('error') !== -1)) {
+              key = 'Test failure';
+            } else if (err.indexOf('conflict') !== -1) {
+              key = 'Merge conflict';
+            } else if (err.indexOf('permission') !== -1 || err.indexOf('access denied') !== -1) {
+              key = 'Permission error';
+            } else if (err.indexOf('import') !== -1 || err.indexOf('module') !== -1) {
+              key = 'Import/module error';
+            } else if (err.indexOf('syntax') !== -1) {
+              key = 'Syntax error';
+            } else if (err.indexOf('connection') !== -1 || err.indexOf('network') !== -1) {
+              key = 'Connection error';
+            } else {
+              key = (e.error || 'Unknown error').substring(0, 50);
+            }
+            reasonCounts[key] = (reasonCounts[key] || 0) + 1;
+          });
+          var reasonsEl = document.getElementById('sr-failure-reasons');
+          if (reasonsEl) {
+            var reasonPairs = Object.keys(reasonCounts).map(function(k){ return {reason: k, count: reasonCounts[k]}; });
+            reasonPairs.sort(function(a,b){ return b.count - a.count; });
+            var top5 = reasonPairs.slice(0, 5);
+            var totalFailed = failedEvents.length;
+            if (top5.length === 0) {
+              reasonsEl.innerHTML = '<div style="color:var(--status-success);font-size:0.85rem">No failures in recent history</div>';
+            } else {
+              var h = '';
+              top5.forEach(function(r) {
+                var pct = totalFailed > 0 ? Math.round(r.count / totalFailed * 100) : 0;
+                h += '<div style="display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px solid var(--border-color)">';
+                h += '<span style="font-size:0.85rem;color:var(--text-secondary)">' + r.reason + '</span>';
+                h += '<span style="font-size:0.85rem;color:var(--status-error);margin-left:8px;white-space:nowrap">' + r.count + (pct > 0 ? ' (' + pct + '%)' : '') + '</span>';
+                h += '</div>';
+              });
+              reasonsEl.innerHTML = h;
+            }
+          }
+        }).catch(function(e) { console.warn('fetchSuccessRate error:', e); });
+      }
+
+      // Initial fetch for all panels
+      fetchHealth(); fetchTasks(); fetchOrg(); fetchErrors(); fetchDaemon(); fetchResults(); fetchSuccessRate();
+      // Auto-refresh intervals
+      setInterval(fetchHealth, 30000);
+      setInterval(fetchTasks, 15000);
+      setInterval(fetchOrg, 60000);
+      setInterval(fetchErrors, 30000);
+      setInterval(fetchDaemon, 10000);
+      setInterval(fetchResults, 20000);
+      setInterval(fetchSuccessRate, 15000);
+      // Refresh buttons
+      var rh = document.getElementById('refresh-health');
+      if (rh) rh.addEventListener('click', function(){ fetchHealth(); });
+      var rd = document.getElementById('refresh-daemon');
+      if (rd) rd.addEventListener('click', function(){ fetchDaemon(); });
+      var rr = document.getElementById('refresh-results');
+      if (rr) rr.addEventListener('click', function(){ fetchResults(); });
+
+      // Goals & Roadmap data fetching
+      function fetchGoals() {
+        fetch('/api/goals')
+          .then(function(r) { return r.json(); })
+          .then(function(data) {
+            if (!data.success) return;
+            var periodEl = document.getElementById('goals-period');
+            periodEl.textContent = data.period || 'Unknown';
+
+            var container = document.getElementById('goals-container');
+            if (!data.goals || data.goals.length === 0) {
+              container.innerHTML = '<div class="empty-state"><div class="empty-state__title">No active goals</div></div>';
+              return;
+            }
+
+            var html = '';
+            data.goals.forEach(function(g) {
+              var statusClass = g.status === 'complete' ? 'progress-bar__fill--success'
+                : g.progress > 50 ? '' : 'progress-bar__fill--warning';
+              var badgeClass = g.status === 'complete' ? 'badge--success'
+                : g.status === 'on_track' ? 'badge--info'
+                : g.status === 'at_risk' ? 'badge--warning' : 'badge--muted';
+              var statusText = g.status === 'complete' ? 'Complete'
+                : g.status === 'on_track' ? 'On Track'
+                : g.status === 'at_risk' ? 'At Risk'
+                : g.status === 'in_progress' ? 'In Progress' : 'Not Started';
+
+              // Trend arrow based on status
+              var trendArrow = g.status === 'complete' ? '&#x2714;'
+                : g.status === 'on_track' ? '<span style="color: var(--status-success);">&uarr;</span>'
+                : g.status === 'at_risk' ? '<span style="color: var(--status-warning);">&darr;</span>'
+                : '<span style="color: var(--text-muted);">&rarr;</span>';
+
+              // At-risk highlight
+              var atRiskStyle = (g.status === 'at_risk' || g.progress < 50)
+                ? ' style="margin-bottom: 16px; border-left: 3px solid var(--status-warning); padding-left: 12px;"'
+                : ' style="margin-bottom: 16px;"';
+
+              html += '<div class="progress-item"' + atRiskStyle + '>'
+                + '<div class="progress-item__header">'
+                + '<span class="progress-item__label"><strong>' + g.id + '</strong>: ' + g.name + ' ' + trendArrow + '</span>'
+                + '<span class="badge ' + badgeClass + '">' + statusText + '</span>'
+                + '</div>'
+                + '<div style="color: var(--text-muted); font-size: 0.8rem; margin: 2px 0 4px;">'
+                + g.metric + ' &middot; Owner: ' + g.owner
+                + '</div>'
+                + '<div class="progress-item__header">'
+                + '<span class="progress-item__label"></span>'
+                + '<span class="progress-item__value">' + g.progress + '%</span>'
+                + '</div>'
+                + '<div class="progress-bar">'
+                + '<div class="progress-bar__fill ' + statusClass + '" style="width: ' + g.progress + '%"></div>'
+                + '</div>'
+                + '</div>';
+            });
+            container.innerHTML = html;
+          })
+          .catch(function() {});
+      }
+
+      function fetchRoadmap() {
+        fetch('/api/roadmap-phases')
+          .then(function(r) { return r.json(); })
+          .then(function(data) {
+            if (!data.success) return;
+            var container = document.getElementById('phase-list');
+            var summary = document.getElementById('phases-summary');
+
+            if (!data.phases || data.phases.length === 0) {
+              container.innerHTML = '<div class="empty-state"><div class="empty-state__title">No phase data</div></div>';
+              return;
+            }
+
+            var completed = data.phases.filter(function(p) { return p.status === 'complete'; }).length;
+            summary.textContent = completed + '/' + data.phases.length + ' phases complete';
+
+            // Show most recent 10 phases (reverse order, newest first)
+            var recentPhases = data.phases.slice(-10).reverse();
+            var html = '';
+            recentPhases.forEach(function(p) {
+              var statusClass = p.status === 'complete' ? 'phase-item__status--completed'
+                : p.status === 'planning' ? 'phase-item__status--active' : 'phase-item__status--pending';
+              var statusText = p.status === 'complete' ? 'Complete'
+                : p.status === 'planning' ? 'Planning' : p.status;
+              var barClass = p.progress === 100 ? 'progress-bar__fill--success' : '';
+
+              html += '<div class="phase-item">'
+                + '<div class="phase-item__header">'
+                + '<h3 class="phase-item__title">' + p.name + '</h3>'
+                + '<span class="phase-item__status ' + statusClass + '">' + statusText + '</span>'
+                + '</div>'
+                + '<div class="phase-item__meta">'
+                + '<span>' + p.completed_tasks + '/' + p.total_tasks + ' tasks</span>'
+                + '</div>'
+                + '<div class="phase-item__progress">'
+                + '<div class="progress-item">'
+                + '<div class="progress-item__header">'
+                + '<span class="progress-item__label">Progress</span>'
+                + '<span class="progress-item__value">' + p.progress + '%</span>'
+                + '</div>'
+                + '<div class="progress-bar">'
+                + '<div class="progress-bar__fill ' + barClass + '" style="width: ' + p.progress + '%"></div>'
+                + '</div></div></div></div>';
+            });
+            container.innerHTML = html;
+          })
+          .catch(function() {});
+      }
+
+      // Initial load
+      fetchGoals();
+      fetchRoadmap();
+
+      // Auto-refresh every 30 seconds
+      setInterval(function() { fetchGoals(); fetchRoadmap(); }, 30000);
+
+      // Refresh button
+      var refreshBtn = document.getElementById('refresh-roadmap');
+      if (refreshBtn) {
+        refreshBtn.addEventListener('click', function() { fetchGoals(); fetchRoadmap(); });
+      }
+    });
+
+    // G7 Autonomy Progress Panel
+    (function() {
+      function fmtHours(h) {
+        if (h === null || h === undefined) return '--';
+        h = parseFloat(h);
+        if (h < 1) return Math.round(h * 60) + 'm';
+        var days = Math.floor(h / 24);
+        var hrs = Math.round(h % 24);
+        if (days > 0) return days + 'd ' + hrs + 'h';
+        return h.toFixed(1) + 'h';
+      }
+
+      function fetchG7Progress() {
+        fetch('/api/g7-progress')
+          .then(function(r) { return r.json(); })
+          .then(function(data) {
+            if (!data.success) return;
+
+            var currentEl = document.getElementById('g7-current-uptime');
+            if (currentEl) currentEl.textContent = fmtHours(data.current_uptime_hours);
+
+            var pctEl = document.getElementById('g7-progress-pct');
+            var barEl = document.getElementById('g7-progress-bar');
+            if (pctEl) pctEl.textContent = (data.progress_percent || 0) + '%';
+            if (barEl) {
+              barEl.style.width = Math.min(data.progress_percent || 0, 100) + '%';
+              barEl.style.background = (data.progress_percent || 0) >= 100
+                ? 'var(--status-success)' : 'var(--status-info)';
+            }
+
+            var streakEl = document.getElementById('g7-longest-streak');
+            if (streakEl) streakEl.textContent = fmtHours(data.longest_streak_hours);
+
+            var statusEl = document.getElementById('g7-daemon-status');
+            if (statusEl) {
+              statusEl.textContent = data.daemon_running ? 'Running' : 'Stopped';
+              statusEl.style.color = data.daemon_running
+                ? 'var(--status-success)' : 'var(--status-error)';
+            }
+
+            var rateEl = document.getElementById('g7-success-rate');
+            var ratePctEl = document.getElementById('g7-success-rate-pct');
+            var rateBarEl = document.getElementById('g7-success-bar');
+            var rate = data.success_rate_7d;
+            if (rateEl) rateEl.textContent = rate !== null ? rate + '%' : 'N/A';
+            if (ratePctEl) ratePctEl.textContent = rate !== null ? rate + '%' : 'N/A';
+            if (rateBarEl) rateBarEl.style.width = (rate || 0) + '%';
+
+            var compEl = document.getElementById('g7-completed-7d');
+            if (compEl) compEl.textContent = data.tasks_completed_7d || 0;
+
+            var failEl = document.getElementById('g7-failed-7d');
+            if (failEl) failEl.textContent = data.tasks_failed_7d || 0;
+          })
+          .catch(function() {});
+      }
+
+      document.addEventListener('DOMContentLoaded', function() {
+        fetchG7Progress();
+        setInterval(fetchG7Progress, 30000);
+
+        var refreshG7 = document.getElementById('refresh-g7');
+        if (refreshG7) {
+          refreshG7.addEventListener('click', fetchG7Progress);
+        }
+      });
+    }());
+
+    // Autonomy Metrics Panel
+    (function() {
+      function fetchAutonomyMetrics() {
+        fetch('/api/autonomy-widget')
+          .then(function(r) { return r.json(); })
+          .then(function(data) {
+            if (!data.success && data.autonomy_percent === undefined) return;
+
+            var pctEl = document.getElementById('aw-autonomy-pct');
+            if (pctEl) {
+              var pct = data.autonomy_percent !== undefined ? data.autonomy_percent : 100.0;
+              pctEl.textContent = pct + '%';
+              if (pct >= 90) pctEl.style.color = 'var(--status-success)';
+              else if (pct >= 70) pctEl.style.color = 'var(--status-warning)';
+              else pctEl.style.color = 'var(--status-error)';
+            }
+
+            var compEl = document.getElementById('aw-tasks-completed');
+            if (compEl) compEl.textContent = data.tasks_completed !== undefined ? data.tasks_completed : '--';
+
+            var escEl = document.getElementById('aw-tasks-escalated');
+            if (escEl) escEl.textContent = data.tasks_escalated !== undefined ? data.tasks_escalated : '--';
+
+            var sinceEl = document.getElementById('aw-since-human');
+            if (sinceEl) sinceEl.textContent = data.time_since_last_human_formatted || 'Never';
+
+            var lastEscEl = document.getElementById('aw-last-escalation');
+            if (lastEscEl) {
+              if (data.last_escalation_at) {
+                var d = new Date(data.last_escalation_at);
+                lastEscEl.textContent = isNaN(d.getTime()) ? data.last_escalation_at : d.toLocaleString();
+              } else {
+                lastEscEl.textContent = 'None recorded';
+              }
+            }
+
+            var recovEl = document.getElementById('aw-recovery-count');
+            if (recovEl) {
+              var cnt = data.active_recovery_attempts || 0;
+              recovEl.textContent = cnt;
+              recovEl.style.color = cnt > 0
+                ? 'var(--status-warning)' : 'var(--text-primary)';
+            }
+
+            var statusEl = document.getElementById('aw-recovery-status');
+            if (statusEl) {
+              var cnt2 = data.active_recovery_attempts || 0;
+              statusEl.textContent = cnt2 > 0
+                ? cnt2 + ' task(s) being retried autonomously'
+                : 'No tasks currently in recovery';
+            }
+
+            var velEl = document.getElementById('aw-velocity');
+            if (velEl) {
+              velEl.textContent = data.goal_progress_velocity !== undefined
+                ? data.goal_progress_velocity : '--';
+            }
+          })
+          .catch(function() {});
+      }
+
+      document.addEventListener('DOMContentLoaded', function() {
+        fetchAutonomyMetrics();
+        setInterval(fetchAutonomyMetrics, 30000);
+
+        var refreshBtn = document.getElementById('refresh-autonomy');
+        if (refreshBtn) {
+          refreshBtn.addEventListener('click', fetchAutonomyMetrics);
+        }
+      });
+    }());
+  </script>
+</body>
+</html>

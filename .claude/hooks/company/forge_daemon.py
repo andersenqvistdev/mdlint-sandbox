@@ -662,6 +662,17 @@ class DaemonConfig:
     roadmap_auto_schedule_waves: bool = True  # Auto-schedule tasks from waves
     roadmap_respect_dependencies: bool = True  # Respect task dependencies
     roadmap_max_tasks_per_scan: int = 10  # Max tasks to schedule per scan
+    # Signal-driven backlog generation (2026-08-13). The LAST-RESORT source:
+    # goal autofill and roadmap intake are both finite and this repo exhausted
+    # both at once (goals met/excluded, intake 17 of 17 handled), leaving a
+    # healthy daemon idling on an empty queue. Runs only after those two have
+    # had their turn and left the queue below threshold, so declared work
+    # always outranks derived work. Long cooldown because the underlying
+    # signals (coverage.json) only refresh nightly -- a short one would churn
+    # the same measurement into duplicate briefs.
+    backlog_generation_enabled: bool = True
+    backlog_max_tasks_per_scan: int = 3
+    backlog_cooldown_minutes: int = 60
     # P20: GSD/BMAD planning integration settings
     planning_enabled: bool = False  # DISABLED: orchestrator overrides complexity, causing all tasks to be planned. Direct execution is more reliable.
     planning_complexity_threshold: str = (
@@ -1017,6 +1028,14 @@ class DaemonConfig:
             config.roadmap_respect_dependencies = roadmap_config.get(
                 "respectDependencies", True
             )
+            # Signal-driven backlog generation. Defaults ON: the config key is
+            # optional so an existing install gets the last-resort work source
+            # without a humanProtected forge-config.json edit.
+            backlog_config = data.get("backlogGeneration", {})
+            config.backlog_generation_enabled = backlog_config.get("enabled", True)
+            config.backlog_max_tasks_per_scan = backlog_config.get("maxTasksPerScan", 3)
+            config.backlog_cooldown_minutes = backlog_config.get("cooldownMinutes", 60)
+
             config.roadmap_max_tasks_per_scan = roadmap_config.get(
                 "maxTasksPerScan", 10
             )
@@ -1381,6 +1400,9 @@ class DaemonState:
     last_queue_autofill: str = ""
     queue_autofill_runs: int = 0
     queue_autofill_tasks_generated: int = 0
+    last_backlog_generation: str = ""
+    backlog_generation_runs: int = 0
+    backlog_tasks_generated: int = 0
     last_silence_check: str = ""
     silence_alerts_raised: int = 0
 
@@ -1504,6 +1526,9 @@ class DaemonState:
             "last_queue_autofill": self.last_queue_autofill,
             "queue_autofill_runs": self.queue_autofill_runs,
             "queue_autofill_tasks_generated": self.queue_autofill_tasks_generated,
+            "last_backlog_generation": self.last_backlog_generation,
+            "backlog_generation_runs": self.backlog_generation_runs,
+            "backlog_tasks_generated": self.backlog_tasks_generated,
             "last_silence_check": self.last_silence_check,
             "silence_alerts_raised": self.silence_alerts_raised,
         }
@@ -1665,6 +1690,9 @@ class DaemonState:
             queue_autofill_tasks_generated=data.get(
                 "queue_autofill_tasks_generated", 0
             ),
+            last_backlog_generation=data.get("last_backlog_generation", ""),
+            backlog_generation_runs=data.get("backlog_generation_runs", 0),
+            backlog_tasks_generated=data.get("backlog_tasks_generated", 0),
         )
 
 
@@ -5856,6 +5884,60 @@ def _run_queue_autofill(
     state.queue_autofill_runs += 1
     created = result.get("tasks_created", 0)
     state.queue_autofill_tasks_generated += created
+
+    return result
+
+
+def _should_run_backlog_generation(config: DaemonConfig, state: DaemonState) -> bool:
+    """Signal-driven backlog generation: the LAST-RESORT work source.
+
+    Deliberately checked AFTER queue auto-fill in the same cycle, and it
+    re-reads the pending count, so declared work always wins: if autofill or
+    the roadmap scheduler just filled the queue this returns False and no
+    derived work is minted. It only fires when everything else has had its
+    turn and the queue is still short -- the state this repo sat in for a week
+    (goals met or excluded, roadmap intake 17 of 17 handled, daemon idle).
+    """
+    if not config.backlog_generation_enabled:
+        return False
+
+    if _get_pending_queue_size() >= config.queue_low_threshold:
+        return False
+
+    if not state.last_backlog_generation:
+        return True
+
+    try:
+        last_run = datetime.fromisoformat(
+            state.last_backlog_generation.replace("Z", "+00:00")
+        )
+    except (ValueError, TypeError):
+        return True
+
+    elapsed_minutes = (datetime.now(timezone.utc) - last_run).total_seconds() / 60
+    return elapsed_minutes >= config.backlog_cooldown_minutes
+
+
+def _run_backlog_generation(config: DaemonConfig, state: DaemonState) -> dict[str, Any]:
+    """Mint tasks from measured repo signals. Never raises."""
+    _ensure_imports()
+
+    result: dict[str, Any] = {"generated": 0, "minted": 0, "failed": 0}
+    try:
+        import backlog_generator
+
+        signals = backlog_generator.generate(
+            Path.cwd(), limit=config.backlog_max_tasks_per_scan
+        )
+        result = backlog_generator.mint(signals, dry_run=False)
+    except Exception as exc:
+        # A dry or broken signal source must never take the cycle down; it is
+        # the last-resort lane, so failing quiet is correct.
+        logger.debug(f"Backlog generation skipped: {exc}")
+
+    state.last_backlog_generation = datetime.now(timezone.utc).isoformat()
+    state.backlog_generation_runs += 1
+    state.backlog_tasks_generated += result.get("minted", 0)
 
     return result
 
@@ -10618,6 +10700,22 @@ def run_daemon_loop(config: DaemonConfig) -> int:
                         f"[2/3 Scheduling] Queue auto-fill: "
                         f"{created} tasks added for goals "
                         f"{autofill_result.get('goals_targeted', [])}"
+                    )
+                    consecutive_idle_polls = 0
+                    last_activity_time = time.time()
+
+            # Signal-driven backlog: last resort, AFTER autofill so declared
+            # goal work always outranks work derived from repo measurements.
+            # _should_run_backlog_generation re-reads the pending count, so a
+            # successful autofill above suppresses this in the same cycle.
+            if _should_run_backlog_generation(config, state):
+                backlog_result = _run_backlog_generation(config, state)
+                minted = backlog_result.get("minted", 0)
+                if minted > 0:
+                    logger.info(
+                        f"[2/3 Scheduling] Signal backlog: {minted} task(s) "
+                        f"minted from repo signals "
+                        f"({backlog_result.get('generated', 0)} generated)"
                     )
                     consecutive_idle_polls = 0
                     last_activity_time = time.time()

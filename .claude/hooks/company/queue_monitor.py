@@ -159,6 +159,40 @@ def get_active_daemon_pids():
     return pids
 
 
+def _last_failure_note(health_metrics: dict) -> str:
+    """Age of the newest failure, rendered next to the success rate.
+
+    total_successes/total_failures are LIFETIME cumulative counters over
+    execution ATTEMPTS (retries included) that never age out. The rate built
+    from them therefore cannot recover: on 2026-08-15 the dashboard read
+    69% (194/280) while every one of the 86 failures predated 2026-08-02 --
+    13 days with a clean record, displayed as a two-thirds success rate.
+    Read alongside autonomy_metrics (86% lifetime, 77% over 30 days, both
+    over DISTINCT TASKS rather than attempts), the bare number invited the
+    conclusion that something had regressed when nothing had.
+
+    Showing when the last failure actually happened costs one field and makes
+    the figure self-describing: a stale denominator is obvious at a glance.
+    """
+    stamp = health_metrics.get("last_failure_time")
+    if not stamp:
+        return ""
+    try:
+        when = datetime.fromisoformat(str(stamp))
+    except (TypeError, ValueError):
+        return ""
+    if when.tzinfo is None:
+        when = when.replace(tzinfo=timezone.utc)
+    delta = datetime.now(timezone.utc) - when
+    if delta.days >= 1:
+        age = f"{delta.days}d"
+    elif delta.seconds >= 3600:
+        age = f"{delta.seconds // 3600}h"
+    else:
+        age = f"{max(delta.seconds // 60, 0)}m"
+    return f" \033[2mlifetime, last fail {age} ago\033[0m"
+
+
 def render_dashboard(company_dir, completions_n=10):
     lines = []
     w = 78
@@ -187,7 +221,7 @@ def render_dashboard(company_dir, completions_n=10):
     lines.append("")
     lines.append(
         f"  Circuit: {cb_color}{cb_state}\033[0m  |  "
-        f"Success: {rate} ({total_ok}/{total})  |  "
+        f"Success: {rate} ({total_ok}/{total}){_last_failure_note(hm)}  |  "
         f"Queue: {len(queue.get('pending', []))}P / "
         f"{len(queue.get('in_progress', []))}A / "
         f"{len(queue.get('completed', []))}C"

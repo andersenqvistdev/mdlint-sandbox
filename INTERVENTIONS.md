@@ -10,12 +10,58 @@ logs, running metrics, and observing do not count.
 
 ## Run window
 
+### Run 1 — 2026-08-03 → 2026-08-15. **FAILED the pass bar. Result recorded.**
+
 - **First launch:** 2026-08-03 12:12 UTC — **shakedown only, does not count.**
   Finding #9 (`uv.lock` humanProtected) made shipping structurally impossible,
   so zero product PRs were reachable regardless of worker quality.
 - **Clock start:** 2026-08-03 ~13:20 UTC, after findings #9 and #10 were fixed
   and the ceiling-blocked tasks were returned to pending.
-- **14-day bar ends:** 2026-08-17
+- **Stalled:** 2026-08-04, after PR #5. Never resumed.
+- **Closed:** 2026-08-15 06:30 UTC, two days short of the 14-day bar, because
+  the outcome was no longer in doubt (see below).
+
+**Measured outcome against the pre-registered bar:**
+
+| Bar | Required | Actual |
+|---|---|---|
+| Consecutive unattended days | 14 | 12 (of which 11 were a total stall) |
+| Merged product PRs | ≥10 | **2** (#4, #5 — and #4 is titled *RECOVERY ATTEMPT — Wrong Approach*) |
+| Product hand-verified working | yes | not reached |
+
+At close: queue 0 pending / 0 active / 0 blocked / 10 done, **1,296 consecutive
+idle cycles**, and **315 brief-quality skips** in
+`.company/state/autofill_brief_skips.jsonl`. The silence sentinel was firing
+`['scout_silent', 'queue_empty', 'brief_skips']` on every cycle for 11 days.
+It was working correctly; nobody was reading it.
+
+**The registered prediction held.** `.planning/EXPERIMENT.md` predicted in
+advance that after the greenfield boundary "task minting will degrade — either
+the mint rate drops, or minted tasks start failing the admission gate for lack
+of verified pointers." The mint rate went to **zero**, and the skip log gives
+the reason per goal: `missing: ["verified_pointer", "measured_evidence"]` for
+G5, G6, G7, G9 and `["verified_pointer"]` for G8, repeating every cycle.
+
+**Confounder, stated plainly:** this sandbox ran a *frozen* copy of the
+framework taken at 2026-08-03 11:33. It never received the brief-quality gate
+fix (forge-framework PR #361, merged the same day) or anything after it. So
+Run 1 tested the **diagnosed** system, not the fixed one. That makes it a clean
+confirmation of the diagnosis and not a verdict on the current framework.
+
+Verified 2026-08-15 by replaying the five stalled goal strings through the
+**current** gate (`_is_fix_intent` / `_concrete_targets` /
+`_existing_file_pointers`): **all five now PASS.** G7 is the sharpest case —
+its `--fix` flag was matching `\bfix\b` and misclassifying the whole goal as
+repair work demanding a verified pointer; the current regex reads it as a CLI
+flag, one of five concrete targets it now recognises.
+
+### Run 2 — from 2026-08-15
+
+- **Clock start:** 2026-08-15 (see intervention #2)
+- **14-day bar ends:** 2026-08-29
+- **Framework:** synced from forge-framework at 2026-08-15, replacing the
+  2026-08-03 freeze. Adds the brief-quality gate fix (#361), the signal-driven
+  `backlog_generator.py`, the queue ping-pong fix (#370) and the QoS fix (#371).
 - **Daemon:** `com.forgelabs.daemon.mdlint-sandbox-d1bfdc`
 - **Repo:** https://github.com/andersenqvistdev/mdlint-sandbox
 
@@ -24,6 +70,7 @@ logs, running metrics, and observing do not count.
 | # | When (UTC) | What | Why | Counts? |
 |---|-----------|------|-----|---------|
 | 1 | 2026-08-03 12:37 | `forge-queue approve --all` — approved 6 ideation ideas | The documented by-design touch from ProjectK's runbook. Without it the queue stays empty and no work starts. | **Yes (1/2)** |
+| 2 | 2026-08-15 06:30 | Stopped the daemon, rsynced `.claude/hooks/` from forge-framework over the 2026-08-03 freeze, restarted. `.company/`, `forge-config.json` and all product source left untouched; previous tree kept at `.claude/hooks.bak-20260815`. | Framework defect repair, not a nudge to the daemon's work: the sandbox was running a build whose brief-quality gate rejected 5 of 9 goals unconditionally, 315 times. Run 1's result is recorded above rather than discarded. | **No — ends Run 1, starts Run 2** |
 
 ---
 
