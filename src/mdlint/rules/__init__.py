@@ -46,4 +46,7 @@ from mdlint.rules import (  # noqa: E402
     md_s01_first_line_heading,  # noqa: F401
     md_s02_heading_increment,  # noqa: F401
     md_s03_no_duplicate_siblings,  # noqa: F401
+    md_t01_consistent_unordered_markers,  # noqa: F401
+    md_t02_ordered_list_sequential,  # noqa: F401
+    md_t03_table_column_count,  # noqa: F401
 )
