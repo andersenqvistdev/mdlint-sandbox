@@ -49,4 +49,8 @@ from mdlint.rules import (  # noqa: E402
     md_t01_consistent_unordered_markers,  # noqa: F401
     md_t02_ordered_list_sequential,  # noqa: F401
     md_t03_table_column_count,  # noqa: F401
+    md_w01_no_trailing_spaces,  # noqa: F401
+    md_w02_no_hard_tabs,  # noqa: F401
+    md_w03_no_consecutive_blank_lines,  # noqa: F401
+    md_w04_final_newline,  # noqa: F401
 )

@@ -20,7 +20,10 @@ def main(argv: list[str] | None = None) -> int:
 
     for file in args.files:
         try:
-            lines = Path(file).read_text(encoding="utf-8").splitlines()
+            # split("\n"), not splitlines(): MDW04 needs to tell "no trailing
+            # newline" apart from "one trailing newline", which splitlines()
+            # can't distinguish since it discards the newline entirely.
+            lines = Path(file).read_text(encoding="utf-8").split("\n")
         except READ_ERRORS as err:
             print(f"mdlint: {file}: {err}", file=sys.stderr)
             had_errors = True

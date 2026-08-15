@@ -17,13 +17,15 @@ def test_registers_all_three_link_rules():
 
 
 def test_clean_document_has_no_violations():
-    lines = ["# Title", "", "## Section"]
+    # "# Title\n\n## Section\n" via the CLI's split("\n")
+    lines = ["# Title", "", "## Section", ""]
 
     assert lint_lines("doc.md", lines) == []
 
 
 def test_aggregates_violations_from_multiple_rules_sorted_by_line():
-    lines = ["Not a heading", "# Title", "### Too deep"]
+    # "Not a heading\n# Title\n### Too deep\n" via the CLI's split("\n")
+    lines = ["Not a heading", "# Title", "### Too deep", ""]
 
     violations = lint_lines("doc.md", lines)
 
