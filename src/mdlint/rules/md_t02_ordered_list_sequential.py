@@ -7,7 +7,7 @@ inside a list don't break the sequence; any other non-list content does, so a
 later, unrelated list is free to start its own count.
 """
 
-from mdlint.lists import iter_ordered_list_items
+from mdlint.lists import iter_ordered_list_items, ordered_number_span
 from mdlint.rules import Rule, register
 from mdlint.violation import Violation
 
@@ -46,4 +46,30 @@ def check(file: str, lines: list[str]) -> list[Violation]:
     return violations
 
 
-register(Rule(id=RULE_ID, name="ordered-list-sequential", check=check))
+def fix(lines: list[str]) -> list[str]:
+    """Renumber ordered list items so each sequence increases by one."""
+    fixed = list(lines)
+    expected_by_indent: dict[int, int] = {}
+    item_by_line = {item.line: item for item in iter_ordered_list_items(lines)}
+
+    for lineno, raw_line in enumerate(lines, start=1):
+        item = item_by_line.get(lineno)
+        if item is not None:
+            expected = expected_by_indent.get(item.indent, item.number)
+            if item.number != expected:
+                span = ordered_number_span(fixed[lineno - 1])
+                if span is not None:
+                    start, end = span
+                    line = fixed[lineno - 1]
+                    fixed[lineno - 1] = line[:start] + str(expected) + line[end:]
+            expected_by_indent[item.indent] = expected + 1
+            for indent in [i for i in expected_by_indent if i > item.indent]:
+                del expected_by_indent[indent]
+        elif raw_line.strip() == "":
+            continue
+        else:
+            expected_by_indent.clear()
+    return fixed
+
+
+register(Rule(id=RULE_ID, name="ordered-list-sequential", check=check, fix=fix))

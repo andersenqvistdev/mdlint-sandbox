@@ -1,6 +1,6 @@
 """Tests for MDL03 — bare URLs outside code spans must be wrapped."""
 
-from mdlint.rules.md_l03_no_bare_urls import RULE_ID, check
+from mdlint.rules.md_l03_no_bare_urls import RULE_ID, check, fix
 
 
 def test_passes_for_markdown_links():
@@ -43,3 +43,33 @@ def test_flags_multiple_bare_urls_on_one_line():
     violations = check("doc.md", lines)
 
     assert len(violations) == 2
+
+
+def test_fix_wraps_a_bare_url_in_angle_brackets():
+    lines = ["Visit https://example.com for more."]
+
+    fixed = fix(lines)
+
+    assert fixed == ["Visit <https://example.com> for more."]
+    assert check("doc.md", fixed) == []
+
+
+def test_fix_keeps_trailing_punctuation_outside_the_brackets():
+    lines = ["See https://example.com."]
+
+    assert fix(lines) == ["See <https://example.com>."]
+
+
+def test_fix_wraps_multiple_bare_urls_on_one_line():
+    lines = ["http://a.example.com and https://b.example.com"]
+
+    fixed = fix(lines)
+
+    assert fixed == ["<http://a.example.com> and <https://b.example.com>"]
+    assert check("doc.md", fixed) == []
+
+
+def test_fix_is_a_noop_when_there_are_no_bare_urls():
+    lines = ["See [the site](https://example.com) for more."]
+
+    assert fix(lines) == lines

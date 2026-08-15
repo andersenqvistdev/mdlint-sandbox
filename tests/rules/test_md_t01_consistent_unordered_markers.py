@@ -1,6 +1,6 @@
 """Tests for MDT01 — unordered list markers must be consistent."""
 
-from mdlint.rules.md_t01_consistent_unordered_markers import RULE_ID, check
+from mdlint.rules.md_t01_consistent_unordered_markers import RULE_ID, check, fix
 
 
 def test_passes_when_all_items_use_the_same_marker():
@@ -39,3 +39,28 @@ def test_ignores_thematic_breaks_and_fenced_code():
     lines = ["- one", "---", "```", "* two", "```", "- three"]
 
     assert check("doc.md", lines) == []
+
+
+def test_fix_rewrites_inconsistent_markers_to_match_the_first():
+    lines = ["- one", "* two", "+ three"]
+
+    fixed = fix(lines)
+
+    assert fixed == ["- one", "- two", "- three"]
+    assert check("doc.md", fixed) == []
+
+
+def test_fix_preserves_indentation_and_trailing_content():
+    lines = ["- one", "  * nested item"]
+
+    assert fix(lines) == ["- one", "  - nested item"]
+
+
+def test_fix_is_a_noop_when_already_consistent():
+    lines = ["- one", "- two"]
+
+    assert fix(lines) == lines
+
+
+def test_fix_is_a_noop_for_a_single_item():
+    assert fix(["* only item"]) == ["* only item"]
