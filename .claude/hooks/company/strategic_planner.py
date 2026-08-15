@@ -81,6 +81,42 @@ _TASK_ID_POINTER_RE = re.compile(r"task-\d{14}-[0-9a-f]{6}")
 _PR_POINTER_RE = re.compile(r"(?:PR\s*)?#\d{2,}\b")
 _MEASURED_RE = re.compile(r"\d")
 
+# Intent split for the brief-quality gate (2026-08-11). The gate used to demand
+# an EXISTING pointer for every brief, which is the right test for fix work and
+# the wrong test for build work: a brief describing work-not-yet-done names
+# files that cannot exist yet. Evidence for both failure directions:
+#   - forge-framework G7 passed the gate vacuously for weeks on "Improve success
+#     rate from 75% to 90%+" -- the goal's OWN failure task-id satisfied
+#     "pointer" and the percentages satisfied "measurement", so a pure metric
+#     restatement minted every cycle, was admission-rejected, and re-minted.
+#   - mdlint-sandbox (stranger repo) had ALL NINE goals skipped in one sweep on
+#     2026-08-08 for missing verified_pointer, the moment it stopped being
+#     greenfield -- real, enumerated build work, permanently unmintable.
+# A fix brief must name the code to change; a build brief must name the artifact
+# to create. Existence is required only for the former.
+# The (?<![-\w]) guard keeps a CLI flag from reading as intent: "--fix applies
+# safe autofixes" is a build brief naming a flag, not a request to fix anything.
+_FIX_INTENT_RE = re.compile(
+    r"(?<![-\w])(?:fix|fixes|fixing|repair|resolve|correct|debug|patch|refactor"
+    r"|improve|raise|increase|decrease|reduce|restore|unblock|optimi[sz]e"
+    r"|migrate)\b",
+    re.IGNORECASE,
+)
+
+# Concrete-deliverable signals for build briefs. Existence is deliberately NOT
+# checked here -- naming `src/mdlint/cli.py` or `--fix` is concrete whether or
+# not it exists yet. A metric target ("90% success rate") matches none of these,
+# which is exactly what separates buildable work from a restatement.
+_CLI_FLAG_RE = re.compile(r"(?<![\w-])--[a-z][a-z0-9-]{1,}")
+_CONFIG_NAME_RE = re.compile(r"(?<![\w./])\.[a-z][a-z0-9_-]*(?:rc|ignore|config)\b")
+_WELL_KNOWN_ARTIFACT_RE = re.compile(
+    r"\b(?:README|LICENSE|CHANGELOG|CONTRIBUTING|Makefile|Dockerfile)\b"
+)
+# A colon introducing a comma-separated list of >=2 named deliverables, e.g.
+# "Three rules implemented with tests: first line is a top-level heading,
+#  heading levels increment by one, no duplicate sibling headings".
+_ENUMERATION_RE = re.compile(r":\s*[^,:]{3,},\s*[^,:]{3,}")
+
 # Cap on trailing lines scanned in autofill_brief_skips.jsonl for dedup --
 # same append-only/chronological rationale as _REJECTION_LOG_MAX_LINES.
 _BRIEF_SKIP_LOG_MAX_LINES = 500
@@ -2363,6 +2399,61 @@ def _verified_pointers(text: str, project_root: Path) -> list[str]:
     return unique
 
 
+def _existing_file_pointers(text: str, project_root: Path) -> list[str]:
+    """Subset of _verified_pointers that are real FILES on disk.
+
+    A fix brief must name the code to change. Task IDs and PR refs tell a worker
+    what failed, not what to edit -- accepting them alone is what let
+    forge-framework's G7 restatement ("Improve success rate from 75% to 90%+",
+    carrying only its own failure task-id) pass the gate every cycle.
+    """
+    cleaned = text.replace("`", "")
+    found: list[str] = []
+    for match in _FILE_POINTER_RE.finditer(cleaned):
+        candidate = match.group(0)
+        if candidate.startswith("./"):
+            candidate = candidate[2:]
+        try:
+            if (project_root / candidate).exists() and candidate not in found:
+                found.append(candidate)
+        except OSError:
+            continue
+    return found
+
+
+def _is_fix_intent(text: str) -> bool:
+    """True when the action describes repairing/moving something that exists."""
+    return bool(_FIX_INTENT_RE.search(text))
+
+
+def _concrete_targets(text: str) -> list[str]:
+    """Named deliverables in text, WITHOUT requiring them to exist yet.
+
+    Order-preserving de-dup. Used for build briefs: the question is "does this
+    name something specific to produce", not "does it already exist".
+    """
+    cleaned = text.replace("`", "")
+    targets: list[str] = []
+    for pattern in (
+        _FILE_POINTER_RE,
+        _CLI_FLAG_RE,
+        _CONFIG_NAME_RE,
+        _WELL_KNOWN_ARTIFACT_RE,
+        _TASK_ID_POINTER_RE,
+        _PR_POINTER_RE,
+    ):
+        targets.extend(m.group(0) for m in pattern.finditer(cleaned))
+    if _ENUMERATION_RE.search(cleaned):
+        targets.append("enumerated-deliverables")
+    seen: set[str] = set()
+    unique: list[str] = []
+    for target in targets:
+        if target not in seen:
+            seen.add(target)
+            unique.append(target)
+    return unique
+
+
 def _has_measurement(text: str) -> bool:
     """True when text carries a number that is not part of a pointer.
 
@@ -2633,20 +2724,32 @@ def autofill_queue_from_goals(
             else:
                 action_text = f"Advance {assessment.goal_name} goal"
 
-        # Brief-quality gate: a non-greenfield brief ships with at least one
-        # verified pointer and one measured value, or it doesn't ship. The
-        # skip is recorded (observable), the goal is retried next cycle --
-        # if its assessor starts emitting evidence (PR #301 pattern), the
-        # gate passes automatically.
+        # Brief-quality gate: a non-greenfield brief must be concrete enough to
+        # act on, or it doesn't ship. The skip is recorded (observable) and the
+        # goal is retried next cycle, so a brief that gains evidence later
+        # passes automatically.
+        #
+        # What "concrete" means depends on the intent (see _FIX_INTENT_RE):
+        #   fix   -> name an EXISTING file to change, plus a measured value.
+        #            Existence matters: a fix pointing at a path that isn't
+        #            there is a hallucinated pointer.
+        #   build -> name the artifact to produce. Existence must NOT be
+        #            required, because the artifact is the thing being created.
+        #            No measurement is demanded either: task_admission.py (#325)
+        #            already rejects gradient claims that lack a baseline, and
+        #            duplicating that here is what blocked every build goal.
         verified = []
         if not is_greenfield:
             evidence_text = " ".join([action_text, *executable_actions[1:4]])
             verified = _verified_pointers(evidence_text, project_root)
             missing = []
-            if not verified:
-                missing.append("verified_pointer")
-            if not _has_measurement(evidence_text):
-                missing.append("measured_evidence")
+            if _is_fix_intent(evidence_text):
+                if not _existing_file_pointers(evidence_text, project_root):
+                    missing.append("verified_pointer")
+                if not _has_measurement(evidence_text):
+                    missing.append("measured_evidence")
+            elif not _concrete_targets(evidence_text):
+                missing.append("concrete_target")
             if missing:
                 _record_brief_quality_skip(
                     company_dir, assessment.goal_id, missing, action_text

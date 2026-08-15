@@ -2809,6 +2809,27 @@ def suggest_optimal_agent_for_task(
         return None
 
 
+# Blocked-reason substrings that mean "done being retried", as opposed to
+# "waiting on another task". Matched case-insensitively against blocked_reason,
+# which is free text written by the executor / recovery machinery
+# (forge_daemon's WS-101 sweep and the build-ceiling guard).
+_TERMINAL_BLOCK_MARKERS = (
+    "exhausted retries",
+    "build ceiling",
+    "human review",
+    "manual review",
+)
+
+
+def _is_terminally_blocked(task: dict) -> bool:
+    """True when a blocked task is finished, not waiting on a dependency."""
+    reason = task.get("blocked_reason") or ""
+    if not isinstance(reason, str):
+        return False
+    lowered = reason.lower()
+    return any(marker in lowered for marker in _TERMINAL_BLOCK_MARKERS)
+
+
 def update_dependencies(queue: dict) -> bool:
     """
     Check blocked tasks and move to pending if dependencies satisfied.
@@ -2866,6 +2887,30 @@ def update_dependencies(queue: dict) -> bool:
 
     for task in blocked:
         dependencies = task.get("dependencies", [])
+        # A task with NO dependencies was never dependency-blocked, and
+        # `all([])` is vacuously True -- so the original condition promoted
+        # every such task back to pending on every call.
+        #
+        # That produced a permanent ping-pong: strategic_planner's autofill
+        # calls update_dependencies on EVERY idle cycle, which promoted a task
+        # blocked for "Exhausted retries (3/3)" to pending; the executor's
+        # WS-101 sweep immediately moved it back to blocked and rewrote the
+        # queue; next cycle, again. Measured on forge-framework: ~200 spurious
+        # queue rewrites per day and 2323 "Moved 1 exhausted tasks to blocked
+        # queue" log lines, for a single task that had been terminal since
+        # 2026-08-02.
+        #
+        # This function's contract is dependency release (see docstring). A
+        # blocked task with no dependencies is outside it and must stay put.
+        if not dependencies:
+            still_blocked.append(task)
+            continue
+        # Belt and braces: a task can carry dependencies AND be terminally
+        # blocked (retries exhausted, build ceiling, awaiting a human). Those
+        # are not waiting on another task either.
+        if _is_terminally_blocked(task):
+            still_blocked.append(task)
+            continue
         if all(dep_id in completed_ids for dep_id in dependencies):
             task["dependencies_satisfied"] = True
             queue["pending"].append(task)

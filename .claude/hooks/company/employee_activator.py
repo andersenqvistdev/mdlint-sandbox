@@ -3864,18 +3864,30 @@ def _capture_code_changes(
 
             # Only run tests if we found relevant test files
             if test_files_to_run:
-                test_result = subprocess.run(
-                    ["uv", "run", "pytest"]
-                    + test_files_to_run
-                    + ["-x", "--tb=no", "-q"],
-                    capture_output=True,
-                    text=True,
-                    cwd=worktree_dir_str,
-                    timeout=300,
-                )
-                if test_result.returncode != 0:
+                # A TimeoutExpired here must be caught locally, not left to
+                # bubble to the outer except (which turns it into a hard
+                # "Git capture timed out" failure and discards otherwise-
+                # complete work — see ca8cca, where 5 changed test files
+                # aggregated past the 300s budget). Same non-blocking
+                # treatment as a test *failure* below: report and move on
+                # to push/PR creation; GitHub CI still catches real
+                # regressions.
+                try:
+                    test_result = subprocess.run(
+                        ["uv", "run", "pytest"]
+                        + test_files_to_run
+                        + ["-x", "--tb=no", "-q"],
+                        capture_output=True,
+                        text=True,
+                        cwd=worktree_dir_str,
+                        timeout=300,
+                    )
+                    if test_result.returncode != 0:
+                        pre_push_passed = False
+                        pre_push_issues.append("Tests failed")
+                except subprocess.TimeoutExpired:
                     pre_push_passed = False
-                    pre_push_issues.append("Tests failed")
+                    pre_push_issues.append("Tests timed out")
 
         # WS-119 1.8: Don't abort PR creation on pre-push failures.
         # Test/lint failures in worktrees are often pre-existing issues unrelated
