@@ -48,3 +48,11 @@ def test_detects_duplicate_siblings_even_after_a_skipped_level():
 
     assert len(violations) == 1
     assert violations[0].line == 3
+
+
+def test_duplicate_matching_is_case_sensitive():
+    # "Alpha" and "alpha" are different headings; only exact-text repeats
+    # under the same parent are flagged.
+    lines = ["# Title", "## Alpha", "## alpha"]
+
+    assert check("doc.md", lines) == []

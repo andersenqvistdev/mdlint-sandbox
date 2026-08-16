@@ -40,3 +40,9 @@ def test_empty_document_has_no_violations():
 
 def test_document_with_only_blank_lines_has_no_violations():
     assert check("doc.md", ["", "   ", "\t"]) == []
+
+
+def test_passes_when_first_line_h1_has_trailing_closing_hashes():
+    lines = ["# Title #", "body"]
+
+    assert check("doc.md", lines) == []

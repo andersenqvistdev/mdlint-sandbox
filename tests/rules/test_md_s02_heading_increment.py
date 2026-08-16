@@ -39,3 +39,9 @@ def test_flags_each_skipped_jump_independently():
     violations = check("doc.md", lines)
 
     assert [v.line for v in violations] == [2, 3]
+
+
+def test_ignores_skipped_levels_inside_fenced_code_blocks():
+    lines = ["# Title", "```", "##### not a real heading", "```", "## Section"]
+
+    assert check("doc.md", lines) == []
