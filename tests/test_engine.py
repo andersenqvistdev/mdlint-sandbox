@@ -32,3 +32,14 @@ def test_aggregates_violations_from_multiple_rules_sorted_by_line():
     assert [v.rule_id for v in violations] == ["MDS01", "MDS02"]
     assert [v.line for v in violations] == [1, 3]
     assert all(v.file == "doc.md" for v in violations)
+
+
+def test_aggregates_all_three_structure_rules_sorted_by_line():
+    # "Not a heading\n# Title\n### Too deep\n### Too deep\n" via split("\n")
+    lines = ["Not a heading", "# Title", "### Too deep", "### Too deep", ""]
+
+    violations = lint_lines("doc.md", lines)
+
+    assert [v.rule_id for v in violations] == ["MDS01", "MDS02", "MDS03"]
+    assert [v.line for v in violations] == [1, 3, 4]
+    assert all(v.file == "doc.md" for v in violations)
