@@ -35,6 +35,15 @@ def test_flags_each_inconsistent_marker_independently():
     assert [v.line for v in violations] == [2, 3]
 
 
+def test_flags_a_nested_item_using_a_different_marker_than_the_top_level():
+    lines = ["- one", "  * nested"]
+
+    violations = check("doc.md", lines)
+
+    assert len(violations) == 1
+    assert violations[0].line == 2
+
+
 def test_ignores_thematic_breaks_and_fenced_code():
     lines = ["- one", "---", "```", "* two", "```", "- three"]
 
