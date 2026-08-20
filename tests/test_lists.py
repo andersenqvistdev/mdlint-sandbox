@@ -5,7 +5,17 @@ from mdlint.lists import (
     UnorderedListItem,
     iter_ordered_list_items,
     iter_unordered_list_items,
+    ordered_number_span,
+    unordered_marker_span,
 )
+
+
+def test_unordered_marker_span_returns_none_for_non_list_line():
+    assert unordered_marker_span("just a sentence.") is None
+
+
+def test_ordered_number_span_returns_none_for_non_list_line():
+    assert ordered_number_span("just a sentence.") is None
 
 
 def test_extracts_unordered_items_with_marker_and_line():
