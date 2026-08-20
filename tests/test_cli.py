@@ -268,3 +268,38 @@ def test_config_with_non_list_enabled_value_exits_two(tmp_path, capsys):
     captured = capsys.readouterr()
     assert exit_code == 2
     assert str(config) in captured.err
+
+
+def test_fix_only_applies_fixes_for_rules_enabled_by_config(tmp_path):
+    doc = tmp_path / "doc.md"
+    doc.write_text("# Title\n\n- one\n* two\n")
+    config = tmp_path / ".mdlintrc"
+    config.write_text(json.dumps({"enabled": ["MDS01"]}))
+
+    exit_code = main(["--fix", "--config", str(config), str(doc)])
+
+    assert exit_code == 0
+    # MDT01's fix would normalize "* two" to "- two", but MDT01 is disabled
+    # by the config, so the file must be left untouched.
+    assert doc.read_text() == "# Title\n\n- one\n* two\n"
+
+
+def test_fix_and_format_json_report_remaining_violations_after_fixing(tmp_path, capsys):
+    doc = tmp_path / "doc.md"
+    doc.write_text("Not a heading\n\n- one\n* two\n")
+
+    exit_code = main(["--fix", "--format", "json", str(doc)])
+
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    assert exit_code == 1
+    assert doc.read_text() == "Not a heading\n\n- one\n- two\n"
+    assert payload["errors"] == []
+    assert payload["violations"] == [
+        {
+            "file": str(doc),
+            "line": 1,
+            "rule_id": "MDS01",
+            "message": "first line should be a top-level (H1) heading",
+        }
+    ]
