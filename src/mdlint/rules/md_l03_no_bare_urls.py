@@ -26,8 +26,6 @@ def check(file: str, lines: list[str]) -> list[Violation]:
         cleaned = _AUTOLINK_RE.sub(lambda m: " " * len(m.group(0)), cleaned)
         for match in _BARE_URL_RE.finditer(cleaned):
             url = match.group(0).rstrip(_TRAILING_PUNCTUATION)
-            if not url:
-                continue
             violations.append(
                 Violation(
                     file=file,
@@ -51,8 +49,6 @@ def fix(lines: list[str]) -> list[str]:
         pos = 0
         for match in _BARE_URL_RE.finditer(cleaned):
             url = match.group(0).rstrip(_TRAILING_PUNCTUATION)
-            if not url:
-                continue
             start = match.start()
             end = start + len(url)
             pieces.append(line[pos:start])
