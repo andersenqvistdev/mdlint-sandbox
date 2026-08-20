@@ -73,3 +73,13 @@ def test_fix_is_a_noop_when_there_are_no_bare_urls():
     lines = ["See [the site](https://example.com) for more."]
 
     assert fix(lines) == lines
+
+
+def test_bare_scheme_followed_only_by_punctuation_still_flags_and_wraps():
+    lines = ["Broken link: https://)."]
+
+    violations = check("doc.md", lines)
+
+    assert len(violations) == 1
+    assert violations[0].message.startswith("bare URL 'https://'")
+    assert fix(lines) == ["Broken link: <https://>)."]
