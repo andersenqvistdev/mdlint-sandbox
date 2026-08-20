@@ -1,7 +1,14 @@
 """Tests for the rule engine that aggregates every registered rule."""
 
-from mdlint.engine import lint_lines
+from mdlint.engine import apply_fixes, lint_lines
 from mdlint.rules import all_rules
+
+
+def test_apply_fixes_defaults_to_every_registered_rule():
+    # An inconsistent bullet marker (MDT01) is autofixed by the default rule set.
+    lines = ["- one", "* two", ""]
+
+    assert apply_fixes(lines) == ["- one", "- two", ""]
 
 
 def test_registers_all_three_structure_rules():
