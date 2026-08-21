@@ -1,7 +1,15 @@
 """Tests for the rule engine that aggregates every registered rule."""
 
-from mdlint.engine import lint_lines
+from mdlint.engine import apply_fixes, lint_lines
 from mdlint.rules import all_rules
+
+
+def test_apply_fixes_defaults_to_every_registered_rule():
+    lines = ["see https://example.com for details", ""]
+
+    fixed = apply_fixes(lines)
+
+    assert fixed == ["see <https://example.com> for details", ""]
 
 
 def test_registers_all_three_structure_rules():
