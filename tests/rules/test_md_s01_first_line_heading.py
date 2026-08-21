@@ -46,3 +46,15 @@ def test_passes_when_first_line_h1_has_trailing_closing_hashes():
     lines = ["# Title #", "body"]
 
     assert check("doc.md", lines) == []
+
+
+def test_fails_when_document_opens_with_a_fenced_code_block():
+    # The fence's "# not a heading" line must not be mistaken for a real H1,
+    # even though it is textually the first non-blank line.
+    lines = ["```", "# not a heading", "```", "# Title"]
+
+    violations = check("doc.md", lines)
+
+    assert len(violations) == 1
+    assert violations[0].rule_id == RULE_ID
+    assert violations[0].line == 1
