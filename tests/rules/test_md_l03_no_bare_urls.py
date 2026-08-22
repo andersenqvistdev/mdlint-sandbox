@@ -73,3 +73,30 @@ def test_fix_is_a_noop_when_there_are_no_bare_urls():
     lines = ["See [the site](https://example.com) for more."]
 
     assert fix(lines) == lines
+
+
+def test_ignores_link_reference_definition_targets():
+    lines = ['[ref]: https://example.com "Title"']
+
+    assert check("doc.md", lines) == []
+
+
+def test_ignores_angle_bracketed_link_reference_definition_targets():
+    lines = ["[ref]: <https://example.com>"]
+
+    assert check("doc.md", lines) == []
+
+
+def test_still_flags_bare_urls_after_a_link_reference_definition_line():
+    lines = ["[ref]: https://example.com", "Visit https://bad.example.com now."]
+
+    violations = check("doc.md", lines)
+
+    assert len(violations) == 1
+    assert violations[0].line == 2
+
+
+def test_fix_does_not_touch_link_reference_definition_targets():
+    lines = ['[ref]: https://example.com "Title"']
+
+    assert fix(lines) == lines

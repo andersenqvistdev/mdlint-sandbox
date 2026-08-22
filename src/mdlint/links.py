@@ -10,6 +10,7 @@ from dataclasses import dataclass
 
 _FENCE_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
 _LINK_RE = re.compile(r"!?\[([^\]]*)\]\(([^)\s]*)(?:\s+[^)]*)?\)")
+_LINK_REF_DEF_RE = re.compile(r"^( {0,3}\[[^\]]+\]:[ \t]*)(<[^<>\s]*>|[^\s]+)")
 
 
 @dataclass(frozen=True)
@@ -66,6 +67,20 @@ def _find_closing_run(line: str, start: int, run_len: int) -> int | None:
 def mask_links(line: str) -> str:
     """Replace inline link/image syntax with spaces, preserving line length."""
     return _LINK_RE.sub(lambda m: " " * len(m.group(0)), line)
+
+
+def mask_link_reference_definitions(line: str) -> str:
+    """Blank the destination of a ``[label]: target`` line, preserving length.
+
+    A link reference definition's destination isn't a bare URL in prose —
+    it's the same kind of link target an inline ``[text](url)`` already
+    carries — so callers that hunt for unwrapped URLs must not flag it.
+    """
+    match = _LINK_REF_DEF_RE.match(line)
+    if not match:
+        return line
+    start, end = match.span(2)
+    return line[:start] + " " * (end - start) + line[end:]
 
 
 def iter_masked_lines(lines: list[str]) -> Iterator[tuple[int, str]]:

@@ -7,7 +7,7 @@ markdown link (``[text](https://example.com)``).
 
 import re
 
-from mdlint.links import iter_masked_lines, mask_links
+from mdlint.links import iter_masked_lines, mask_link_reference_definitions, mask_links
 from mdlint.rules import Rule, register
 from mdlint.violation import Violation
 
@@ -23,6 +23,7 @@ def check(file: str, lines: list[str]) -> list[Violation]:
     violations = []
     for lineno, masked in iter_masked_lines(lines):
         cleaned = mask_links(masked)
+        cleaned = mask_link_reference_definitions(cleaned)
         cleaned = _AUTOLINK_RE.sub(lambda m: " " * len(m.group(0)), cleaned)
         for match in _BARE_URL_RE.finditer(cleaned):
             url = match.group(0).rstrip(_TRAILING_PUNCTUATION)
@@ -44,6 +45,7 @@ def fix(lines: list[str]) -> list[str]:
     fixed = list(lines)
     for lineno, masked in iter_masked_lines(lines):
         cleaned = mask_links(masked)
+        cleaned = mask_link_reference_definitions(cleaned)
         cleaned = _AUTOLINK_RE.sub(lambda m: " " * len(m.group(0)), cleaned)
         idx = lineno - 1
         line = fixed[idx]

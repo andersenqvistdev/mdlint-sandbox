@@ -1,6 +1,12 @@
 """Tests for the shared inline-link parser used by the MDL rules."""
 
-from mdlint.links import Link, iter_links, mask_code_spans, mask_links
+from mdlint.links import (
+    Link,
+    iter_links,
+    mask_code_spans,
+    mask_link_reference_definitions,
+    mask_links,
+)
 
 
 def test_extracts_links_with_text_target_and_line():
@@ -69,3 +75,29 @@ def test_mask_code_spans_leaves_unclosed_backtick_runs_untouched():
 
     assert masked == line
     assert len(masked) == len(line)
+
+
+def test_mask_link_reference_definitions_blanks_the_destination():
+    line = '[ref]: https://example.com "Title"'
+
+    masked = mask_link_reference_definitions(line)
+
+    assert len(masked) == len(line)
+    assert "https://example.com" not in masked
+    assert masked.startswith("[ref]: ")
+    assert masked.endswith(' "Title"')
+
+
+def test_mask_link_reference_definitions_handles_angle_bracket_destination():
+    line = "[ref]: <https://example.com>"
+
+    masked = mask_link_reference_definitions(line)
+
+    assert len(masked) == len(line)
+    assert "https://example.com" not in masked
+
+
+def test_mask_link_reference_definitions_is_a_noop_for_other_lines():
+    line = "Visit https://example.com for more."
+
+    assert mask_link_reference_definitions(line) == line
