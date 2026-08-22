@@ -30,6 +30,17 @@ def test_file_with_violations_exits_one_and_prints_each_in_order(tmp_path, capsy
     assert lines[1].startswith(f"{doc}:3: MDS02")
 
 
+def test_empty_file_exits_zero_with_no_output(tmp_path, capsys):
+    doc = tmp_path / "empty.md"
+    doc.write_text("")
+
+    exit_code = main([str(doc)])
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert captured.out == ""
+
+
 def test_multiple_files_mixed_clean_and_dirty(tmp_path, capsys):
     clean = tmp_path / "clean.md"
     clean.write_text("# Title\n")
