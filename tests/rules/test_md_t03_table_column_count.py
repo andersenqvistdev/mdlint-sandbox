@@ -91,6 +91,29 @@ def test_ignores_tables_inside_fenced_code_blocks():
     assert check("doc.md", lines) == []
 
 
+def test_escaped_pipes_do_not_count_as_column_separators():
+    lines = [
+        "| A | B |",
+        "| --- | --- |",
+        r"| 1\|2 | 3 |",
+    ]
+
+    assert check("doc.md", lines) == []
+
+
+def test_escaped_pipe_still_flags_a_genuine_mismatch():
+    lines = [
+        "| A | B |",
+        "| --- | --- |",
+        r"| 1\|2 |",
+    ]
+
+    violations = check("doc.md", lines)
+
+    assert len(violations) == 1
+    assert violations[0].line == 3
+
+
 def test_checks_multiple_tables_independently():
     lines = [
         "| A | B |",
