@@ -55,3 +55,12 @@ def test_a_real_trailing_blank_line_is_not_flagged_alone():
 
 def test_empty_document_has_no_violations():
     assert check("doc.md", [""]) == []
+
+
+def test_lines_without_a_trailing_newline_marker_are_scanned_as_is():
+    # No trailing "" element: the input doesn't end with a newline.
+    lines = ["# Title", "", "", "body"]
+
+    violations = check("doc.md", lines)
+
+    assert [v.line for v in violations] == [3]
