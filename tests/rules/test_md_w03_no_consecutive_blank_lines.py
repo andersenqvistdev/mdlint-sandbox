@@ -55,3 +55,17 @@ def test_a_real_trailing_blank_line_is_not_flagged_alone():
 
 def test_empty_document_has_no_violations():
     assert check("doc.md", [""]) == []
+
+
+def test_truly_empty_document_has_no_violations():
+    assert check("doc.md", []) == []
+
+
+def test_flags_consecutive_blank_lines_when_file_has_no_trailing_newline():
+    # "# Title\n\n\nbody" — no trailing "" marker since the file itself
+    # doesn't end with a newline. MDW03 must still scan every content line.
+    lines = ["# Title", "", "", "body"]
+
+    violations = check("doc.md", lines)
+
+    assert [v.line for v in violations] == [3]
