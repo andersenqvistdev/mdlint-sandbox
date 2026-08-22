@@ -244,6 +244,22 @@ def test_invalid_config_json_exits_two(tmp_path, capsys):
     assert str(config) in captured.err
 
 
+def test_default_config_is_discovered_in_the_current_directory(tmp_path, capsys, monkeypatch):
+    doc = tmp_path / "doc.md"
+    doc.write_text("Not a heading\n# Title\n### Too deep\n")
+    config = tmp_path / ".mdlintrc"
+    config.write_text(json.dumps({"enabled": ["MDS02"]}))
+    monkeypatch.chdir(tmp_path)
+
+    exit_code = main(["doc.md"])
+
+    captured = capsys.readouterr()
+    lines = captured.out.splitlines()
+    assert exit_code == 1
+    assert len(lines) == 1
+    assert "MDS02" in lines[0]
+
+
 def test_config_that_is_not_a_json_object_exits_two(tmp_path, capsys):
     doc = tmp_path / "doc.md"
     doc.write_text("# Title\n")
