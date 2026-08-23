@@ -36,3 +36,33 @@ def test_requires_space_after_hashes():
     headings = list(iter_headings(["#not-a-heading", "#: also not one"]))
 
     assert headings == []
+
+
+def test_shorter_fence_does_not_close_a_longer_opening_fence():
+    lines = [
+        "# Title",
+        "````",
+        "# not a heading",
+        "```",
+        "# still not a heading",
+        "````",
+        "## Real",
+    ]
+
+    headings = list(iter_headings(lines))
+
+    assert headings == [
+        Heading(level=1, text="Title", line=1),
+        Heading(level=2, text="Real", line=7),
+    ]
+
+
+def test_mismatched_fence_character_does_not_close_the_fence():
+    lines = ["# Title", "```", "# not a heading", "~~~", "# still not a heading", "```", "## Real"]
+
+    headings = list(iter_headings(lines))
+
+    assert headings == [
+        Heading(level=1, text="Title", line=1),
+        Heading(level=2, text="Real", line=7),
+    ]
