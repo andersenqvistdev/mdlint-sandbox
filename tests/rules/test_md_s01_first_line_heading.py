@@ -46,3 +46,9 @@ def test_passes_when_first_line_h1_has_trailing_closing_hashes():
     lines = ["# Title #", "body"]
 
     assert check("doc.md", lines) == []
+
+
+def test_passes_when_first_line_h1_is_indented_up_to_three_spaces():
+    lines = ["   # Title", "body"]
+
+    assert check("doc.md", lines) == []

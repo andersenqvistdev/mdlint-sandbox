@@ -56,3 +56,14 @@ def test_duplicate_matching_is_case_sensitive():
     lines = ["# Title", "## Alpha", "## alpha"]
 
     assert check("doc.md", lines) == []
+
+
+def test_duplicate_matching_ignores_closing_hash_decoration():
+    # "## Alpha #" and "## Alpha" render identically once the optional
+    # closing hashes are stripped, so they must be treated as duplicates.
+    lines = ["# Title", "## Alpha #", "## Alpha"]
+
+    violations = check("doc.md", lines)
+
+    assert len(violations) == 1
+    assert violations[0].line == 3
