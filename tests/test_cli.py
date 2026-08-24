@@ -273,6 +273,17 @@ def test_config_that_is_not_a_json_object_exits_two(tmp_path, capsys):
     assert str(config) in captured.err
 
 
+def test_crlf_line_endings_are_normalized_before_linting(tmp_path, capsys):
+    doc = tmp_path / "doc.md"
+    doc.write_bytes(b"# Title\r\n\r\ntrailing space \r\n")
+
+    exit_code = main([str(doc)])
+
+    captured = capsys.readouterr()
+    assert exit_code == 1
+    assert captured.out == f"{doc}:3: MDW01 line has trailing space(s)\n"
+
+
 def test_config_with_non_list_enabled_value_exits_two(tmp_path, capsys):
     doc = tmp_path / "doc.md"
     doc.write_text("# Title\n")
