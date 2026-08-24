@@ -100,3 +100,27 @@ def test_fix_is_a_noop_when_already_sequential():
     lines = ["1. one", "2. two", "3. three"]
 
     assert fix(lines) == lines
+
+
+def test_passes_for_sequential_numbering_using_the_paren_delimiter():
+    lines = ["1) one", "2) two", "3) three"]
+
+    assert check("doc.md", lines) == []
+
+
+def test_fails_when_a_paren_delimited_number_is_skipped():
+    lines = ["1) one", "2) two", "4) four"]
+
+    violations = check("doc.md", lines)
+
+    assert len(violations) == 1
+    assert violations[0].line == 3
+
+
+def test_fix_renumbers_a_skipped_paren_delimited_item():
+    lines = ["1) one", "2) two", "4) four"]
+
+    fixed = fix(lines)
+
+    assert fixed == ["1) one", "2) two", "3) four"]
+    assert check("doc.md", fixed) == []

@@ -64,3 +64,20 @@ def test_fix_is_a_noop_when_already_consistent():
 
 def test_fix_is_a_noop_for_a_single_item():
     assert fix(["* only item"]) == ["* only item"]
+
+
+def test_plus_marker_is_accepted_as_the_expected_marker():
+    lines = ["+ one", "- two", "+ three"]
+
+    violations = check("doc.md", lines)
+
+    assert len(violations) == 1
+    assert violations[0].line == 2
+
+
+def test_fix_rewrites_to_a_plus_expected_marker():
+    lines = ["+ one", "- two", "* three"]
+
+    fixed = fix(lines)
+
+    assert fixed == ["+ one", "+ two", "+ three"]
