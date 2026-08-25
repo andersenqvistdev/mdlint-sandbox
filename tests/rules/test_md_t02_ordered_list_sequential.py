@@ -100,3 +100,12 @@ def test_fix_is_a_noop_when_already_sequential():
     lines = ["1. one", "2. two", "3. three"]
 
     assert fix(lines) == lines
+
+
+def test_fix_resets_after_unrelated_content_and_skips_blank_lines():
+    lines = ["1. one", "", "3. two", "text", "5. new", "7. new too"]
+
+    fixed = fix(lines)
+
+    assert fixed == ["1. one", "", "2. two", "text", "5. new", "6. new too"]
+    assert check("doc.md", fixed) == []
