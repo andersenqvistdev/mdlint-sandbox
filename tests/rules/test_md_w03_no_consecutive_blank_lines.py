@@ -55,3 +55,13 @@ def test_a_real_trailing_blank_line_is_not_flagged_alone():
 
 def test_empty_document_has_no_violations():
     assert check("doc.md", [""]) == []
+
+
+def test_file_without_a_trailing_newline_scans_its_last_line_as_content():
+    # "# Title\n\n\nbody" via the CLI's split("\n") — no trailing "" marker
+    # because the source text does not end with a newline.
+    lines = ["# Title", "", "", "body"]
+
+    violations = check("doc.md", lines)
+
+    assert [v.line for v in violations] == [3]
