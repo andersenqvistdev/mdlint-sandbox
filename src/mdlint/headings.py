@@ -29,7 +29,13 @@ def iter_headings(lines: list[str]) -> Iterator[Heading]:
         fence_match = _FENCE_RE.match(raw_line)
         if fence_match:
             marker_char = fence_match.group(1)[0]
-            fence_char = None if fence_char == marker_char else marker_char
+            if fence_char is None:
+                fence_char = marker_char
+            elif fence_char == marker_char:
+                fence_char = None
+            # else: a different fence character while already inside a
+            # fence is just literal content (e.g. "~~~" shown inside a
+            # ``` block); it neither opens nor closes anything.
             continue
         if fence_char is not None:
             continue
