@@ -60,6 +60,15 @@ def test_nested_ordered_lists_are_tracked_independently_per_indent():
     assert check("doc.md", lines) == []
 
 
+def test_fails_when_a_number_is_skipped_with_the_paren_delimiter():
+    lines = ["1) one", "3) three"]
+
+    violations = check("doc.md", lines)
+
+    assert len(violations) == 1
+    assert violations[0].line == 2
+
+
 def test_ignores_ordered_items_inside_fenced_code_blocks():
     lines = ["1. one", "```", "5. not real", "```", "2. two"]
 
