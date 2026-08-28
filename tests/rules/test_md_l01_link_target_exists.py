@@ -39,6 +39,14 @@ def test_strips_fragment_before_checking_existence(tmp_path):
     assert check(str(doc), lines) == []
 
 
+def test_strips_query_string_before_checking_existence(tmp_path):
+    (tmp_path / "other.md").write_text("# Other\n")
+    doc = tmp_path / "doc.md"
+    lines = ["[link](other.md?raw=true)"]
+
+    assert check(str(doc), lines) == []
+
+
 def test_ignores_same_document_anchor_only_targets(tmp_path):
     doc = tmp_path / "doc.md"
     lines = ["[link](#section)"]
