@@ -1,6 +1,6 @@
 """Tests for the rule engine that aggregates every registered rule."""
 
-from mdlint.engine import lint_lines
+from mdlint.engine import apply_fixes, lint_lines
 from mdlint.rules import all_rules
 
 
@@ -43,3 +43,12 @@ def test_aggregates_all_three_structure_rules_sorted_by_line():
     assert [v.rule_id for v in violations] == ["MDS01", "MDS02", "MDS03"]
     assert [v.line for v in violations] == [1, 3, 4]
     assert all(v.file == "doc.md" for v in violations)
+
+
+def test_apply_fixes_defaults_to_every_registered_rule():
+    lines = ["See https://example.com for more.", ""]
+
+    fixed = apply_fixes(lines)
+
+    assert fixed != lines
+    assert fixed == apply_fixes(lines, all_rules())

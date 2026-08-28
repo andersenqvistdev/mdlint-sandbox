@@ -5,6 +5,8 @@ from mdlint.lists import (
     UnorderedListItem,
     iter_ordered_list_items,
     iter_unordered_list_items,
+    ordered_number_span,
+    unordered_marker_span,
 )
 
 
@@ -57,3 +59,21 @@ def test_ignores_ordered_items_inside_fenced_code_blocks():
     items = list(iter_ordered_list_items(lines))
 
     assert [item.line for item in items] == [1, 5]
+
+
+def test_unordered_marker_span_locates_the_marker_character():
+    assert unordered_marker_span("- one") == (0, 1)
+    assert unordered_marker_span("  * two") == (2, 3)
+
+
+def test_unordered_marker_span_is_none_for_non_list_lines():
+    assert unordered_marker_span("not a list item") is None
+
+
+def test_ordered_number_span_locates_the_number():
+    assert ordered_number_span("1. one") == (0, 1)
+    assert ordered_number_span("  12) two") == (2, 4)
+
+
+def test_ordered_number_span_is_none_for_non_list_lines():
+    assert ordered_number_span("not a list item") is None
