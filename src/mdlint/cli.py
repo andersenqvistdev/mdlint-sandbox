@@ -17,12 +17,22 @@ DEFAULT_CONFIG_NAME = ".mdlintrc"
 
 
 def _resolve_rules(config_path: Path) -> list[Rule]:
-    """Return the rules to run, filtered by the config file's "enabled" list."""
+    """Return the rules to run, filtered by the config file's "enabled" list.
+
+    Raises ConfigError if "enabled" names a rule id that isn't registered,
+    since that's almost always a typo that would otherwise silently narrow
+    the rule set with no feedback.
+    """
     enabled_ids = load_enabled_rule_ids(config_path)
     if enabled_ids is None:
         return all_rules()
+    rules = all_rules()
+    known_ids = {rule.id for rule in rules}
+    unknown = [rule_id for rule_id in enabled_ids if rule_id not in known_ids]
+    if unknown:
+        raise ConfigError(f'{config_path}: unknown rule id(s) in "enabled": {", ".join(unknown)}')
     enabled = set(enabled_ids)
-    return [rule for rule in all_rules() if rule.id in enabled]
+    return [rule for rule in rules if rule.id in enabled]
 
 
 def _is_ignored(file: str, patterns: list[str]) -> bool:

@@ -273,6 +273,20 @@ def test_config_that_is_not_a_json_object_exits_two(tmp_path, capsys):
     assert str(config) in captured.err
 
 
+def test_config_with_unknown_rule_id_exits_two(tmp_path, capsys):
+    doc = tmp_path / "doc.md"
+    doc.write_text("# Title\n")
+    config = tmp_path / ".mdlintrc"
+    config.write_text(json.dumps({"enabled": ["MDS01", "MDS99"]}))
+
+    exit_code = main(["--config", str(config), str(doc)])
+
+    captured = capsys.readouterr()
+    assert exit_code == 2
+    assert str(config) in captured.err
+    assert "MDS99" in captured.err
+
+
 def test_config_with_non_list_enabled_value_exits_two(tmp_path, capsys):
     doc = tmp_path / "doc.md"
     doc.write_text("# Title\n")

@@ -97,7 +97,8 @@ file (JSON) to the directory you run `mdlint` from:
 
 Only the listed rule ids run. Omit `.mdlintrc` (or omit the `"enabled"` key)
 to run every rule. Use `--config PATH` to point at a config file in a
-different location.
+different location. An unrecognized rule id in `"enabled"` (e.g. a typo)
+exits with code `2` instead of silently narrowing the rule set.
 
 ## Rules
 
