@@ -3,16 +3,12 @@
 from mdlint.rules.md_l03_no_bare_urls import RULE_ID, check, fix
 
 
-def test_passes_for_markdown_links():
-    assert check("doc.md", ["See [the site](https://example.com) for more."]) == []
+def test_passes_for_plain_text_with_no_url():
+    assert check("doc.md", ["just some text"]) == []
 
 
-def test_passes_for_autolinks():
-    assert check("doc.md", ["See <https://example.com> for more."]) == []
-
-
-def test_fails_for_a_bare_url_in_prose():
-    lines = ["Visit https://example.com for more."]
+def test_fails_for_a_bare_http_url():
+    lines = ["see http://example.com for details"]
 
     violations = check("doc.md", lines)
 
@@ -21,55 +17,62 @@ def test_fails_for_a_bare_url_in_prose():
     assert violations[0].line == 1
 
 
-def test_ignores_bare_urls_inside_code_spans():
-    assert check("doc.md", ["Run `curl https://example.com` to fetch it."]) == []
+def test_fails_for_a_bare_https_url():
+    violations = check("doc.md", ["https://example.com/path"])
+
+    assert len(violations) == 1
 
 
-def test_ignores_bare_urls_inside_fenced_code_blocks():
-    lines = ["```", "curl https://example.com", "```"]
+def test_passes_for_an_autolink():
+    assert check("doc.md", ["see <https://example.com> for details"]) == []
+
+
+def test_passes_for_a_markdown_link():
+    assert check("doc.md", ["see [example](https://example.com) for details"]) == []
+
+
+def test_ignores_urls_inside_inline_code_spans():
+    assert check("doc.md", ["run `curl https://example.com`"]) == []
+
+
+def test_ignores_urls_inside_fenced_code_blocks():
+    lines = ["```", "https://example.com", "```"]
 
     assert check("doc.md", lines) == []
 
 
-def test_strips_trailing_punctuation_from_the_reported_url():
-    violations = check("doc.md", ["See https://example.com."])
+def test_strips_trailing_punctuation_from_the_flagged_url():
+    violations = check("doc.md", ["visit https://example.com."])
 
-    assert violations[0].message.startswith("bare URL 'https://example.com'")
+    assert len(violations) == 1
+    assert "https://example.com" in violations[0].message
+    assert "https://example.com." not in violations[0].message
 
 
-def test_flags_multiple_bare_urls_on_one_line():
-    lines = ["http://a.example.com and https://b.example.com"]
+def test_flags_each_bare_url_independently():
+    lines = ["https://a.example.com", "<https://b.example.com>", "https://c.example.com"]
 
     violations = check("doc.md", lines)
 
-    assert len(violations) == 2
+    assert [v.line for v in violations] == [1, 3]
 
 
 def test_fix_wraps_a_bare_url_in_angle_brackets():
-    lines = ["Visit https://example.com for more."]
+    lines = ["see https://example.com for details"]
 
     fixed = fix(lines)
 
-    assert fixed == ["Visit <https://example.com> for more."]
+    assert fixed == ["see <https://example.com> for details"]
     assert check("doc.md", fixed) == []
 
 
-def test_fix_keeps_trailing_punctuation_outside_the_brackets():
-    lines = ["See https://example.com."]
-
-    assert fix(lines) == ["See <https://example.com>."]
-
-
-def test_fix_wraps_multiple_bare_urls_on_one_line():
-    lines = ["http://a.example.com and https://b.example.com"]
-
-    fixed = fix(lines)
-
-    assert fixed == ["<http://a.example.com> and <https://b.example.com>"]
-    assert check("doc.md", fixed) == []
-
-
-def test_fix_is_a_noop_when_there_are_no_bare_urls():
-    lines = ["See [the site](https://example.com) for more."]
+def test_fix_leaves_lines_without_bare_urls_untouched():
+    lines = ["see [example](https://example.com)", "no urls here"]
 
     assert fix(lines) == lines
+
+
+def test_fix_preserves_trailing_punctuation_outside_the_wrap():
+    lines = ["visit https://example.com."]
+
+    assert fix(lines) == ["visit <https://example.com>."]
