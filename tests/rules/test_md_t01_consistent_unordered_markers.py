@@ -35,6 +35,15 @@ def test_flags_each_inconsistent_marker_independently():
     assert [v.line for v in violations] == [2, 3]
 
 
+def test_ordered_list_items_dont_affect_the_expected_marker():
+    lines = ["1. ordered", "- bullet", "* mismatched"]
+
+    violations = check("doc.md", lines)
+
+    assert len(violations) == 1
+    assert violations[0].line == 3
+
+
 def test_ignores_thematic_breaks_and_fenced_code():
     lines = ["- one", "---", "```", "* two", "```", "- three"]
 

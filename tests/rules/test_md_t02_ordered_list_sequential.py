@@ -60,6 +60,12 @@ def test_nested_ordered_lists_are_tracked_independently_per_indent():
     assert check("doc.md", lines) == []
 
 
+def test_period_and_paren_delimiters_share_the_same_sequence():
+    lines = ["1. one", "2) two", "3. three"]
+
+    assert check("doc.md", lines) == []
+
+
 def test_ignores_ordered_items_inside_fenced_code_blocks():
     lines = ["1. one", "```", "5. not real", "```", "2. two"]
 
