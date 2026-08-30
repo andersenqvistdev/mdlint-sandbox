@@ -287,6 +287,34 @@ def test_config_with_unknown_rule_id_exits_two(tmp_path, capsys):
     assert "MDS99" in captured.err
 
 
+def test_config_path_that_is_a_directory_exits_two(tmp_path, capsys):
+    doc = tmp_path / "doc.md"
+    doc.write_text("# Title\n")
+    config_dir = tmp_path / ".mdlintrc"
+    config_dir.mkdir()
+
+    exit_code = main(["--config", str(config_dir), str(doc)])
+
+    captured = capsys.readouterr()
+    assert exit_code == 2
+    assert str(config_dir) in captured.err
+    assert captured.out == ""
+
+
+def test_config_with_invalid_utf8_exits_two(tmp_path, capsys):
+    doc = tmp_path / "doc.md"
+    doc.write_text("# Title\n")
+    config = tmp_path / ".mdlintrc"
+    config.write_bytes(b"\xff\xfe\x00\x00bad")
+
+    exit_code = main(["--config", str(config), str(doc)])
+
+    captured = capsys.readouterr()
+    assert exit_code == 2
+    assert str(config) in captured.err
+    assert captured.out == ""
+
+
 def test_config_with_non_list_enabled_value_exits_two(tmp_path, capsys):
     doc = tmp_path / "doc.md"
     doc.write_text("# Title\n")
