@@ -55,3 +55,15 @@ def test_a_real_trailing_blank_line_is_not_flagged_alone():
 
 def test_empty_document_has_no_violations():
     assert check("doc.md", [""]) == []
+
+
+def test_empty_line_list_has_no_violations():
+    assert check("doc.md", []) == []
+
+
+def test_document_with_no_trailing_newline_is_scanned_in_full():
+    # "# Title\n\nbody" with no trailing newline: split("\n") produces no
+    # trailing "" marker, so every element is real content.
+    lines = ["# Title", "", "body"]
+
+    assert check("doc.md", lines) == []
