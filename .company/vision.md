@@ -40,6 +40,7 @@ adding a rule must never require changing another rule.
 | G7: CLI and config | Usability surface dependsOn: G1 | Four features implemented with tests: --fix applies safe autofixes, .mdlintrc config file selects enabled rules, --format supports text and json, --ignore accepts glob patterns | cli-developer |
 | G8: Quality | Test coverage of the linter dependsOn: G1 | pytest line coverage of the mdlint package at 80 percent or above, measured by coverage.json and not estimated | qa-engineer |
 | G9: Docs | User-facing documentation dependsOn: G1 | README documents install and usage, and a rule reference page documents every implemented rule with an example of passing and failing input | tech-writer |
+| G10: Oracle correctness | Repair the defects an independent implementation found in the shipped linter, listed in .planning/DEFECTS-2026-08-30.md dependsOn: G1 | Every Tier A defect A1 through A9 stops reproducing when its documented command is run, and the no-regression parity table in that same file still holds | cli-developer |
 
 ---
 

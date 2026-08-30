@@ -281,9 +281,10 @@ def prepare_environment(
 
     ``employee_id``, when provided, marks the environment as a real daemon
     worker session (FORGE_DAEMON=1, FORGE_EMPLOYEE_ID=<id>). lint_on_edit.py's
-    _is_daemon_context() gates humanProtected enforcement on these vars —
-    before this, nothing in the codebase ever set them, so that guard never
-    fired for real workers (PR 260 review finding). Preflight/health-check
+    humanProtected check is unconditional (blocks daemon and interactive
+    sessions alike, closing a Kiro-class prompt-injection gap) — these vars no
+    longer gate that enforcement, only attribution/telemetry that wants to
+    know whether a Write/Edit came from a daemon worker. Preflight/health-check
     callers that have no employee context omit this and get an unmarked env.
     """
 

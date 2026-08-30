@@ -228,6 +228,42 @@ Reply to this issue with commands:
     return issue_number
 
 
+# Permission strings GitHub reports for a repo collaborator. Only these carry
+# write access; "read", "none", and anything unrecognised are refused.
+_AUTHORIZED_PERMISSIONS = frozenset({"admin", "maintain", "write"})
+
+
+def _commenter_permission(commenter: str) -> str | None:
+    """The commenter's repo permission per GitHub, or None when undeterminable.
+
+    None means "could not establish", never "has no permission", so the caller
+    can fail closed on an unanswerable question instead of guessing at one.
+    """
+    if not commenter or commenter == "unknown":
+        return None
+    code, stdout, _ = run_gh(
+        [
+            "api",
+            f"repos/{{owner}}/{{repo}}/collaborators/{commenter}/permission",
+            "--jq",
+            ".permission",
+        ]
+    )
+    if code != 0:
+        return None
+    return stdout.strip() or None
+
+
+def _is_authorized_commenter(commenter: str) -> bool:
+    """True only when GitHub affirms the commenter has write access.
+
+    Fails CLOSED. A missing gh CLI, a network error, an empty or unparseable
+    response, and an unrecognised permission string all deny: a gate on
+    privileged commands that fails open is not a gate.
+    """
+    return _commenter_permission(commenter) in _AUTHORIZED_PERMISSIONS
+
+
 def process_comment(
     issue_number: int, comment_body: str, commenter: str
 ) -> dict[str, Any]:
@@ -242,6 +278,16 @@ def process_comment(
         "action": None,
         "success": False,
     }
+
+    # Authorization precedes everything, including the issue lookup. /close,
+    # /assign, /priority and /blocked all mutate the work queue, and a GitHub
+    # issue comment is attacker-supplied text from anyone who can reach the
+    # repo. Before this gate `commenter` was read only to compose the audit
+    # line ("Closed by @{commenter} via /close command"), so the login was
+    # recorded but never checked — any commenter could drive the queue.
+    if not _is_authorized_commenter(commenter):
+        result["action"] = "unauthorized"
+        return result
 
     # Find the task for this issue
     mapping = load_issue_mapping()

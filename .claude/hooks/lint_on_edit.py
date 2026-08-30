@@ -42,7 +42,12 @@ HOOK_NAME = "lint_on_edit"
 
 
 def _is_daemon_context() -> bool:
-    """Check if we're running in daemon context (should respect humanProtected)."""
+    """Check if we're running in daemon context.
+
+    No longer gates the humanProtected check (that block is unconditional —
+    see main()). Kept for attribution/telemetry callers and for the test that
+    asserts a real daemon worker env is still detectable as such.
+    """
     # Daemon sets specific env vars or runs from specific paths
     return (
         os.environ.get("FORGE_DAEMON") == "1"
@@ -79,12 +84,18 @@ def _matches_pattern(file_path: str, pattern: str) -> bool:
     cwd). Deliberately NOT a suffix match: '.claude/forge-config.json'
     (the install template) must not match the root 'forge-config.json'
     pattern.
+
+    Security review finding (SCOUT-20260814-1): the relative candidate must
+    be normalized — an unnormalized '..' segment (e.g.
+    '.claude/../forge-config.json', which resolves to the exact protected
+    file) previously fell through every candidate untouched and evaded the
+    match.
     """
     import fnmatch
     import os
 
     pattern = pattern.lstrip("./")
-    candidates = [file_path.lstrip("./")]
+    candidates = [file_path.lstrip("./"), os.path.normpath(file_path).lstrip("./")]
     if os.path.isabs(file_path):
         try:
             rel_cwd = os.path.relpath(file_path, os.getcwd())
@@ -200,7 +211,12 @@ def main():
     tool_name = input_data.get("tool_name", "")
     tool_input = input_data.get("tool_input", {})
 
-    if tool_name not in ("Write", "Edit"):
+    # This list only takes effect for tools .claude/settings.json's PreToolUse
+    # matcher names explicitly (exact match, not a substring/regex search), so
+    # the two must stay in sync. That matcher is "Write|Edit|MultiEdit" as of
+    # 2026-08-19 — before then it read "Write|Edit", which left the MultiEdit
+    # branch below correct but unreachable in production.
+    if tool_name not in ("Write", "Edit", "MultiEdit"):
         sys.exit(0)
 
     file_path = tool_input.get("file_path", "")
@@ -262,51 +278,57 @@ def main():
     if not is_enabled(HOOK_NAME):
         sys.exit(0)
 
-    # Human-protected paths: Block daemon from modifying files reserved for human editing
-    if _is_daemon_context():
-        human_protected = _get_human_protected_paths()
-        for pattern in human_protected:
-            if _matches_pattern(file_path, pattern):
-                print("", file=sys.stderr)
-                print(
-                    "╔══════════════════════════════════════════════════════════════╗",
-                    file=sys.stderr,
+    # Human-protected paths: block the agent's Write/Edit/MultiEdit tools from
+    # touching files reserved for direct human editing. Unconditional — NOT
+    # gated on _is_daemon_context(). An ordinary interactive session can be
+    # steered by prompt injection (Kiro-class: AWS confirmed 2026-07-24 that
+    # hidden webpage text got an agent to rewrite its own MCP config because
+    # that file wasn't on the protected-path list) just as easily as a daemon
+    # worker can, so "human" here means "not through this tool" for every
+    # session type, not just unattended ones.
+    human_protected = _get_human_protected_paths()
+    for pattern in human_protected:
+        if _matches_pattern(file_path, pattern):
+            print("", file=sys.stderr)
+            print(
+                "╔══════════════════════════════════════════════════════════════╗",
+                file=sys.stderr,
+            )
+            print(
+                "║  BLOCKED: Human-Protected File                               ║",
+                file=sys.stderr,
+            )
+            print(
+                "╠══════════════════════════════════════════════════════════════╣",
+                file=sys.stderr,
+            )
+            print(f"║  Path: {file_path[:55]:<55} ║", file=sys.stderr)
+            print(
+                "║                                                              ║",
+                file=sys.stderr,
+            )
+            print(
+                "║  This file is reserved for human editing only.              ║",
+                file=sys.stderr,
+            )
+            print(
+                "║  Configure in forge-config.json → humanProtected.paths      ║",
+                file=sys.stderr,
+            )
+            print(
+                "╚══════════════════════════════════════════════════════════════╝",
+                file=sys.stderr,
+            )
+            print("", file=sys.stderr)
+            print(
+                json.dumps(
+                    {
+                        "decision": "block",
+                        "reason": f"BLOCKED: Human-protected path: {pattern}",
+                    }
                 )
-                print(
-                    "║  BLOCKED: Human-Protected File                               ║",
-                    file=sys.stderr,
-                )
-                print(
-                    "╠══════════════════════════════════════════════════════════════╣",
-                    file=sys.stderr,
-                )
-                print(f"║  Path: {file_path[:55]:<55} ║", file=sys.stderr)
-                print(
-                    "║                                                              ║",
-                    file=sys.stderr,
-                )
-                print(
-                    "║  This file is reserved for human editing only.              ║",
-                    file=sys.stderr,
-                )
-                print(
-                    "║  Configure in forge-config.json → humanProtected.paths      ║",
-                    file=sys.stderr,
-                )
-                print(
-                    "╚══════════════════════════════════════════════════════════════╝",
-                    file=sys.stderr,
-                )
-                print("", file=sys.stderr)
-                print(
-                    json.dumps(
-                        {
-                            "decision": "block",
-                            "reason": f"BLOCKED: Human-protected path: {pattern}",
-                        }
-                    )
-                )
-                sys.exit(2)
+            )
+            sys.exit(2)
 
     # Protected paths and binary files always block (exit 2) regardless of profile
     # because these are fundamental invariants:

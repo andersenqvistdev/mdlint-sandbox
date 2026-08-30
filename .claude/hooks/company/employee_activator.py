@@ -62,6 +62,7 @@ efficiency_tracker = None
 complexity_detector = None
 task_planner = None
 consultant_lifecycle = None
+worktree_integrity = None
 
 # WS-068-001: Semantic capability matching - keyword expansion map
 # Maps task keywords/phrases to employee capabilities for fuzzy matching
@@ -163,6 +164,20 @@ def _ensure_imports():
         work_allocator = wa
         memory_sync = ms
         efficiency_tracker = et
+
+
+def _ensure_worktree_integrity():
+    """Lazily import worktree_integrity from the sibling company module."""
+    global worktree_integrity
+    if worktree_integrity is not None:
+        return
+
+    try:
+        from . import worktree_integrity as wi
+    except ImportError:
+        import worktree_integrity as wi  # type: ignore[no-redef]
+
+    worktree_integrity = wi
 
 
 def _ensure_consultant_lifecycle():
@@ -2933,6 +2948,14 @@ def _filter_memory_for_task(
     return "\n".join(result_parts)
 
 
+# A markdown H2 only counts when it starts a line. A bare ``"## "`` substring
+# search also matches the tail of a ``"### "`` sub-heading, which silently
+# truncated every Learnings section to the empty string and pinned the memory
+# hit rate at 0% across every recorded task.
+_H2_LEARNINGS_RE = re.compile(r"^## Learnings[^\n]*(?:\n|$)", re.MULTILINE)
+_H2_HEADING_RE = re.compile(r"^## ", re.MULTILINE)
+
+
 def _did_reuse_context(memory_content: str, task: dict) -> bool:
     """
     Determine if employee memory contained relevant context for this task.
@@ -2942,16 +2965,15 @@ def _did_reuse_context(memory_content: str, task: dict) -> bool:
     if not memory_content:
         return False
 
-    # Check for Learnings section
-    if "## Learnings" not in memory_content:
+    # Locate the Learnings section by line-anchored H2 heading.
+    heading = _H2_LEARNINGS_RE.search(memory_content)
+    if not heading:
         return False
 
-    # Extract learnings section content
-    parts = memory_content.split("## Learnings", 1)
-    if len(parts) < 2:
-        return False
-
-    learnings_text = parts[1].split("## ", 1)[0]  # Up to next section
+    # The section runs from the end of the heading line to the next H2 (or EOF).
+    body = memory_content[heading.end() :]
+    next_h2 = _H2_HEADING_RE.search(body)
+    learnings_text = body[: next_h2.start()] if next_h2 else body
 
     # Check keyword overlap with task
     task_desc = task.get("description", "") + " " + task.get("title", "")
@@ -3146,9 +3168,47 @@ def record_task_efficiency(
             ),  # WS-069-005: Honest hit rate
             pattern_tags=task.get("tags", []),
         )
-        return True
     except Exception:
         return False
+
+    _record_measured_tokens(employee_id, task, result)
+    return True
+
+
+def _record_measured_tokens(
+    employee_id: str,
+    task: dict,
+    result: ExecutionResult,
+) -> None:
+    """Record the task's measured token consumption, best effort.
+
+    The provider runs in full agent mode with no ``--output-format``, so usage
+    never reaches stdout; it is recovered from the worker's session transcript
+    instead. Matching is by task_id, which only resolves for worktree runs --
+    the primary checkout's transcript directory also holds interactive
+    sessions, and attributing those to a task would be worse than not counting.
+    A task must never fail because its tokens could not be counted.
+    """
+    task_id = task.get("task_id")
+    if not task_id:
+        return
+
+    try:
+        # Retries get a fresh worktree; only read transcripts touched during
+        # this attempt so an earlier attempt's tokens are not counted twice.
+        window_start = time.time() - max(result.duration_seconds or 0.0, 0.0) - 60.0
+        usage = efficiency_tracker.collect_task_token_usage(
+            task_id=task_id,
+            since=window_start,
+        )
+        if usage.total_tokens > 0:
+            efficiency_tracker.record_task_tokens(
+                task_id=task_id,
+                employee_id=employee_id,
+                usage=usage,
+            )
+    except Exception:
+        return
 
 
 # -----------------------------------------------------------------------------
@@ -4072,8 +4132,22 @@ def _create_worker_worktree(task: dict) -> tuple[Path, str] | None:
             timeout=15,
             cwd=project_root_str,
         )
+        # origin/main, not local main — see company_resolver.preferred_base_ref.
+        base_ref = company_resolver.preferred_base_ref(project_root_str)
+        # --no-track: a remote-tracking start point would otherwise set upstream
+        # and write the shared .git/config (config.lock contention with a
+        # concurrent worker's push -u).
         res = subprocess.run(
-            ["git", "worktree", "add", "-b", wt_branch, str(wt_dir), "main"],
+            [
+                "git",
+                "worktree",
+                "add",
+                "--no-track",
+                "-b",
+                wt_branch,
+                str(wt_dir),
+                base_ref,
+            ],
             capture_output=True,
             text=True,
             timeout=30,
@@ -4336,6 +4410,37 @@ def activate_employee_for_task(
                 "WS-092: Refusing to execute worker in main repo root. "
                 "Provide an isolated worktree path."
             ),
+            "employee_id": employee_id,
+            "complexity": detected_complexity,
+            "used_planning": used_planning,
+        }
+
+    # SCOUT-20260813-1 — ChainDrop-class defense: verify nothing has touched
+    # the worktree's `.claude/settings.json`, `.mcp.json` or `.claude/hooks/`
+    # since checkout, BEFORE the session below can start. Covers both the
+    # daemon-supplied execution_cwd and the self-created fallback above — by
+    # this point execution_cwd is resolved and guaranteed off the main root.
+    _ensure_worktree_integrity()
+    _wt_integrity = worktree_integrity.verify_worktree_integrity(Path(execution_cwd))
+    if not _wt_integrity.ok:
+        print(
+            f"[SECURITY] worktree integrity check failed for "
+            f"{task.get('task_id')}: {_wt_integrity.reason} "
+            f"(diverging: {_wt_integrity.diverging_files})",
+            file=sys.stderr,
+        )
+        worktree_integrity.log_integrity_violation(
+            get_project_root(),
+            str(task.get("task_id")),
+            Path(execution_cwd),
+            _wt_integrity,
+        )
+        if _self_wt is not None:
+            _remove_worker_worktree(_self_wt)
+        return {
+            "success": False,
+            "reason": "worktree_integrity_check_failed",
+            "message": _wt_integrity.reason,
             "employee_id": employee_id,
             "complexity": detected_complexity,
             "used_planning": used_planning,

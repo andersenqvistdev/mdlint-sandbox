@@ -103,7 +103,31 @@ DANGEROUS_PATTERNS = [
     r":\(\)\s*\{[^\n]*\|[^\n]*&\s*\}\s*;\s*:",
     r"echo\s+[^\n]*>\s*/etc/",
     r"\bnpm\s+publish\b(?!\s+--dry-run)",
+    # ORM schema-reset commands. Repeatedly reported (anthropics/claude-code
+    # #34729, #36183) wiping live production databases inside autonomous
+    # sessions — one case dropped all 22 tables about ten minutes in, with no
+    # confirmation anywhere in the chain. These take no quoted SQL, so the
+    # structural mask keeps them intact and they need no raw form.
+    r"\bprisma\s+migrate\s+reset\b",
+    r"\bprisma\s+db\s+push\b[^\n]*--force-reset\b",
 ]
+
+# Destructive SQL handed to a database client. These MUST match the raw form:
+# _structural_mask drops quoted multi-word arguments, which is exactly what
+# keeps `grep "DROP DATABASE" schema.sql` safe, but it also erases the
+# statement here. Anchoring each pattern to a client binary AND its
+# execute flag restores that safety on the raw form — `grep`, `echo` and
+# `git commit -m` carry no `psql -c` / `mysql -e` / `mongosh --eval`.
+_DB_CLIENT = r"(psql|mysql|mariadb|mongosh|mongo)"
+_DB_EXEC_FLAG = r"(-c|-e|--command|--execute|--eval)"
+
+DANGEROUS_PATTERNS.append(
+    r"\b" + _DB_CLIENT + r"\b[^\n]*\s" + _DB_EXEC_FLAG + r"\b[^\n]*\bdrop\s+database\b"
+)
+DANGEROUS_PATTERNS.append(
+    r"\b" + _DB_CLIENT + r"\b[^\n]*\s" + _DB_EXEC_FLAG + r"\b[^\n]*\btruncate\s+table\b"
+)
+DANGEROUS_PATTERNS.append(r"\b(mongosh|mongo)\b[^\n]*--eval\b[^\n]*\bdropDatabase\s*\(")
 
 # find rooted at a CATASTROPHIC location + a destructive action. Bare /, system
 # dirs, $HOME only — so `find . -exec rm`, `find ~/.cache -delete`,
@@ -307,7 +331,17 @@ def _canonical_forms(command: str) -> list[str]:
 
 # Patterns that span pipes/operators/shell-metacharacters — masking would split
 # them apart. Match against RAW forms; they are not verb-substring-prone.
-_RAW_ONLY = (r":\(\)", r"\|\s*(ba|z|c|k|da)?sh\b", r"cd\s+/\s*&&")
+_RAW_ONLY = (
+    r":\(\)",
+    r"\|\s*(ba|z|c|k|da)?sh\b",
+    r"cd\s+/\s*&&",
+    # Destructive SQL lives inside a quoted argument, which the structural
+    # mask drops; these patterns are anchored to a client binary + execute
+    # flag so matching the raw form stays false-positive-safe.
+    r"drop\s+database",
+    r"truncate\s+table",
+    r"dropDatabase",
+)
 
 
 def _is_raw_pattern(pattern: str) -> bool:
@@ -470,13 +504,24 @@ def main():
         except ImportError:  # pragma: no cover - fallback if module unavailable
             network_egress_guard = None
 
+        # An interactive session gets an approval prompt for non-allowlisted
+        # egress (exit 0 + permissionDecision "ask"); a daemon worker is hard
+        # blocked (exit 2). A pending "ask" is held until the checks below
+        # have run, so a slopsquat deny still wins over it.
+        pending_ask: dict | None = None
         if network_egress_guard is not None and is_enabled("network_egress_guard"):
-            egress_result = network_egress_guard.check_command(command)
+            egress_result = network_egress_guard.check_command(
+                command, permission_mode=input_data.get("permission_mode")
+            )
             if egress_result:
                 egress_dict, hosts = egress_result
-                network_egress_guard.print_block_box(command, hosts)
-                print(json.dumps(egress_dict))
-                sys.exit(get_exit_code("network_egress_guard", issue_found=True))
+                ask = network_egress_guard.is_ask_decision(egress_dict)
+                network_egress_guard.print_block_box(command, hosts, ask=ask)
+                if ask:
+                    pending_ask = egress_dict
+                else:
+                    print(json.dumps(egress_dict))
+                    sys.exit(get_exit_code("network_egress_guard", issue_found=True))
 
         # slopsquat_check also has no settings.json entry of its own (that file
         # is human-protected) — it piggybacks on this hook's Bash registration
@@ -499,7 +544,14 @@ def main():
                     print(json.dumps(slop_dict))
                     sys.exit(get_exit_code("slopsquat_check", issue_found=True))
                 # warn-only: surface to the user without blocking the install
-                sys.exit(1)
+                # (the report is already on stderr; a pending egress prompt,
+                # if any, still needs its JSON on stdout with exit 0).
+                if pending_ask is None:
+                    sys.exit(1)
+
+        if pending_ask is not None:
+            print(json.dumps(pending_ask))
+            sys.exit(0)
 
         sys.exit(0)
 

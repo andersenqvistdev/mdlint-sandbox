@@ -74,8 +74,12 @@ _GREENFIELD_INFRA_NAMES = frozenset({"conftest.py", "setup.py", "__init__.py"})
 # 07-23 audit: a vague task costs a full worker execution and produces work
 # nobody asked for; an empty queue slot costs nothing. Greenfield repos are
 # exempt -- there is nothing to point at yet, the Success Metric IS the spec.
+# The leading ``\.?`` is load-bearing: without it the match starts after the
+# dot, so `.claude/hooks/company/forge_daemon.py` was captured as
+# `claude/hooks/...` and the existence check failed for EVERY pointer into
+# Forge's own source tree -- the one directory fix briefs need to name.
 _FILE_POINTER_RE = re.compile(
-    r"[A-Za-z0-9_][A-Za-z0-9_./-]*\.(?:py|md|json|ya?ml|sh|html|js|ts|toml|txt|css)\b"
+    r"\.?[A-Za-z0-9_][A-Za-z0-9_./-]*\.(?:py|md|json|ya?ml|sh|html|js|ts|toml|txt|css)\b"
 )
 _TASK_ID_POINTER_RE = re.compile(r"task-\d{14}-[0-9a-f]{6}")
 _PR_POINTER_RE = re.compile(r"(?:PR\s*)?#\d{2,}\b")
@@ -2527,6 +2531,91 @@ def _record_brief_quality_skip(
         return False
 
 
+# Fallback only. The live value is backlog_generator's, imported below so the
+# two mint paths cannot drift apart -- this repo has been bitten by a constant
+# duplicated across two modules before.
+_QUEUE_FILL_DEDUP_FALLBACK_HOURS = 26.0
+
+
+def _queue_fill_dedup_hours() -> float:
+    """Snapshot dedup horizon, sourced from backlog_generator when available."""
+    try:
+        from . import backlog_generator as bg
+    except ImportError:
+        try:
+            import backlog_generator as bg  # type: ignore[no-redef]
+        except ImportError:
+            return _QUEUE_FILL_DEDUP_FALLBACK_HOURS
+    value = getattr(
+        bg, "COVERAGE_SNAPSHOT_DEDUP_HOURS", _QUEUE_FILL_DEDUP_FALLBACK_HOURS
+    )
+    return (
+        float(value)
+        if isinstance(value, (int, float))
+        else (_QUEUE_FILL_DEDUP_FALLBACK_HOURS)
+    )
+
+
+def _normalize_title(title: str) -> str:
+    """Casefolded, whitespace-collapsed title for exact comparison."""
+    return " ".join(str(title or "").split()).casefold()
+
+
+def _recently_completed_twin(work_allocator, queue: dict, title: str):
+    """A task with the SAME title that COMPLETED inside the snapshot horizon.
+
+    Exact normalized-title match, deliberately not fuzzy, and completed-only.
+
+    These titles are machine-generated from one template --
+    ``[QUEUE-FILL] <goal>: Add tests for <path> (<n>% covered, ...)`` -- and
+    truncated to 60 characters, so the only distinguishing part (the file) is a
+    short tail on a long shared prefix. work_allocator.find_duplicate_task
+    scores two such siblings at 0.80, well above its 0.70 duplicate threshold,
+    so every G1 coverage title reads as a duplicate of every other one.
+
+    Worse, that matcher also scans non-completed buckets, where
+    max_completed_age_hours does not apply. Measured 2026-08-23 -> 26: a single
+    BLOCKED task about forge_daemon.py matched a performance_trends.py title and
+    vetoed the entire G1 lane for 60 hours -- zero tasks, zero PRs -- with no
+    log line, because the skip was only reported in a return value nobody read.
+
+    Blocked and in-flight tasks are excluded here on purpose: this check asks
+    "was this exact work just DONE", and add_task still runs its own
+    active-duplicate check for everything else.
+
+    Never raises: a dedup failure must cost one wasted task, not the work source.
+    """
+    horizon_hours = _queue_fill_dedup_hours()
+    wanted = _normalize_title(title)
+    if not wanted:
+        return None
+
+    try:
+        now = datetime.now(timezone.utc)
+        for task in queue.get("completed") or []:
+            if not isinstance(task, dict):
+                continue
+            if _normalize_title(task.get("title", "")) != wanted:
+                continue
+            completed_at = task.get("completed_at")
+            if not completed_at:
+                continue
+            try:
+                finished = datetime.fromisoformat(
+                    str(completed_at).replace("Z", "+00:00")
+                )
+            except ValueError:
+                continue
+            if finished.tzinfo is None:
+                finished = finished.replace(tzinfo=timezone.utc)
+            if (now - finished).total_seconds() <= horizon_hours * 3600:
+                return task
+    except Exception:
+        return None
+
+    return None
+
+
 def autofill_queue_from_goals(
     company_dir: Path,
     *,
@@ -2557,6 +2646,9 @@ def autofill_queue_from_goals(
           - tasks_created: int -- number of tasks added
           - pending_before: int -- queue depth before fill
           - goals_targeted: list[str] -- goal IDs that received tasks
+          - goals_duplicate_skipped: list[str] -- goal IDs whose brief was
+            already completed inside the snapshot dedup horizon, so re-minting
+            it would only reproduce work already merged
           - goals_quality_skipped: list[str] -- goal IDs held back by the
             brief-quality gate (brief lacked a verified pointer and/or a
             measured value; recorded in state/autofill_brief_skips.jsonl)
@@ -2676,6 +2768,7 @@ def autofill_queue_from_goals(
     tasks_created = 0
     goals_targeted: list[str] = []
     goals_quality_skipped: list[str] = []
+    goals_duplicate_skipped: list[str] = []
 
     # Iterate the FULL incomplete list (not incomplete[:needed]): goals sort
     # lowest-progress-first, so a NOT_STARTED owner/infra-only or recently-
@@ -2793,17 +2886,61 @@ def autofill_queue_from_goals(
             )
         description_parts.extend(["", *_TEST_REQUIREMENT_LINES])
 
+        title = f"[QUEUE-FILL] {assessment.goal_id}: {sanitized_action[:60]}"
+
+        # A goal reading a nightly snapshot re-proposes the SAME work until
+        # that snapshot is rewritten, so the dedup horizon has to cover the
+        # evidence's staleness, not the operator's attention span.
+        # add_task's own check uses RECENT_COMPLETION_HOURS (4h), which these
+        # mints walk straight past: measured 2026-08-22/23, one identical G1
+        # title was minted at 15:45, again at 20:13 (+4h28m) and again at
+        # 02:17 (+6h04m). Seven QUEUE-FILL PRs resulted and four were
+        # auto-closed on irreconcilable conflicts, because each worker was
+        # writing overlapping tests into the same two files.
+        # backlog_generator learned this in #433; this mint path never got it.
+        twin = _recently_completed_twin(work_allocator, queue, title)
+        if twin:
+            # Record it. Reporting this only in the return value made the skip
+            # invisible: when a false positive vetoed the whole G1 lane for 60
+            # hours, the queue simply read "0 pending" and the daemon logged
+            # nothing at all. A gate that hides its own skips is indistinguishable
+            # from a caught-up queue -- the same trap as the brief-quality gate,
+            # which is why this lands in the same file operators already read.
+            _record_brief_quality_skip(
+                company_dir,
+                assessment.goal_id,
+                [f"recent_duplicate:{twin.get('task_id', 'unknown')}"],
+                title,
+            )
+            goals_duplicate_skipped.append(assessment.goal_id)
+            continue
+
         try:
             result = work_allocator.add_task(
-                title=f"[QUEUE-FILL] {assessment.goal_id}: {sanitized_action[:60]}",
+                title=title,
                 description="\n".join(description_parts),
                 priority=3,  # P3-Normal: filler must not outrank the goal work it supports
                 source="gap_analysis",
                 estimated_complexity="standard",
+                # Templated titles: siblings score 0.80 on the fuzzy matcher (#450).
+                exact_duplicate_only=True,
             )
             if result.get("success"):
                 tasks_created += 1
                 goals_targeted.append(assessment.goal_id)
+            else:
+                # A refusal here used to vanish: only successes were counted,
+                # so add_task's own duplicate check could reject every mint for
+                # a goal and the run still reported "0 created" with an empty
+                # skip list. That is how a blocked-task veto went unnoticed for
+                # 60 hours. Record it where the other skips already land.
+                _record_brief_quality_skip(
+                    company_dir,
+                    assessment.goal_id,
+                    [f"add_task_refused:{result.get('error', 'unknown')}"],
+                    title,
+                )
+                goals_duplicate_skipped.append(assessment.goal_id)
         except Exception:
             pass  # Don't fail the entire fill on a single task error
 
@@ -2812,6 +2949,7 @@ def autofill_queue_from_goals(
         "pending_before": pending_before,
         "goals_targeted": goals_targeted,
         "goals_quality_skipped": goals_quality_skipped,
+        "goals_duplicate_skipped": goals_duplicate_skipped,
         "skipped": False,
     }
 

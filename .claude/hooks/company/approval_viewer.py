@@ -19,9 +19,17 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 
-def find_company_dir() -> Path:
-    for start in [Path(__file__).resolve().parent, Path.cwd()]:
-        for parent in [start] + list(start.parents):
+def find_company_dir(start: Path | None = None) -> Path:
+    # start lets callers (and tests) anchor the search explicitly; the default
+    # keeps the __file__-then-cwd walk for CLI use from anywhere in the repo.
+    # Without the anchor a test can only observe the walk's FIRST branch, which
+    # resolves against this file's own checkout — so any assertion about the cwd
+    # branch silently tested the developer's working tree instead of the code.
+    starts = (
+        [start] if start is not None else [Path(__file__).resolve().parent, Path.cwd()]
+    )
+    for s in starts:
+        for parent in [s] + list(s.parents):
             candidate = parent / ".company"
             if candidate.is_dir() and (candidate / "org.json").exists():
                 return candidate

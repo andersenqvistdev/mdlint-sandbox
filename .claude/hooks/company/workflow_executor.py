@@ -219,7 +219,10 @@ def judge_task_diff(
 
     parsed = deliverable_judge.parse_verdict_json(stdout or "")
     if not parsed:
-        return _error("judge output had no parseable verdict JSON")
+        klass, excerpt = deliverable_judge.classify_judge_failure(stdout, err)
+        return _error(
+            f"judge output had no parseable verdict JSON ({klass}): {excerpt}"
+        )
 
     addresses = parsed.get("addresses_task")
     if not isinstance(addresses, bool):

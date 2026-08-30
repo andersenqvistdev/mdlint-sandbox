@@ -447,7 +447,9 @@ def compute_insights(outcomes: list[OutcomeRecord] | None = None) -> LearningIns
 
     for employee_id, complexity_outcomes in employee_outcomes.items():
         all_outcomes = [o for outs in complexity_outcomes.values() for o in outs]
-        if not all_outcomes:
+        if (
+            not all_outcomes
+        ):  # pragma: no cover - grouping loop above always appends >=1 outcome
             continue
 
         total_tasks = len(all_outcomes)
@@ -590,7 +592,7 @@ def compute_insights(outcomes: list[OutcomeRecord] | None = None) -> LearningIns
                     start = hour
                     end = hour
             optimal_time_windows.append((start, end + 1))
-    else:
+    else:  # pragma: no cover - unreachable, outcomes is non-empty past the early return above
         optimal_time_windows = []
 
     # -------------------------------------------------------------------------
@@ -1014,7 +1016,9 @@ def main():
             )
         )
 
-    elif args.command == "proposals":
+    elif (
+        args.command == "proposals"
+    ):  # pragma: no branch - argparse restricts to defined subcommands
         proposals = generate_improvement_proposals()
         print(json.dumps({"proposals": proposals, "count": len(proposals)}, indent=2))
 

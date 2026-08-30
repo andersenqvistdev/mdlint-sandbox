@@ -7,7 +7,18 @@ per-session subagent-spawn cap.
 
 Claude Code v2.1.212 added a default cap of 200 total Task-tool spawns per
 session (override via CLAUDE_CODE_MAX_SUBAGENTS_PER_SESSION), resettable only
-by /clear. `/build` and `/feature` run fully autonomous multi-wave pipelines
+by /clear.
+
+**v2.1.223 (2026-08-06) removed that platform cap.** The hook therefore checks
+whether a cap is actually in effect before enforcing anything: an explicitly
+set CLAUDE_CODE_MAX_SUBAGENTS_PER_SESSION is always honored, but with the
+variable unset on v2.1.223+ there is no cap to guard and the hook counts
+without ever pausing. An undetectable CLI version keeps the original guarding
+behavior, so the failure mode is a needless pause rather than an uncontrolled
+mid-wave cap failure. Without this check the hook pauses long autonomous runs
+at ~170 spawns to protect against a limit the platform no longer enforces.
+
+`/build` and `/feature` run fully autonomous multi-wave pipelines
 that spawn several Task calls per wave (parallel Implementers, then CTO
 review, code review, tests, security scan) and are explicitly instructed to
 proceed through every wave without asking for user confirmation — nothing
@@ -40,6 +51,8 @@ import hashlib
 import json
 import os
 import re
+import shutil
+import subprocess
 import sys
 import tempfile
 from datetime import datetime, timezone
@@ -63,6 +76,14 @@ DEFAULT_RESERVE_BUFFER = 30
 DEFAULT_WARN_AT_RATIO = 0.7
 DEBOUNCE_SPAWNS = 5
 
+# Claude Code v2.1.223 (2026-08-06) removed the 200-subagent-per-session cap
+# this hook exists to guard: "Removed the 200-subagent-per-session spawn cap;
+# long-running sessions no longer refuse new agents (concurrency and depth
+# limits still apply)". On any release at or above this, pausing a build at
+# ~170 spawns protects against nothing and costs a needless /clear-and-resume.
+CAP_REMOVED_VERSION = (2, 1, 223)
+_VERSION_RE = re.compile(r"(\d+)\.(\d+)\.(\d+)")
+
 _SAFE_SESSION_ID = re.compile(r"[^A-Za-z0-9_-]")
 
 
@@ -77,6 +98,56 @@ def _session_cap() -> int:
         except ValueError:
             pass
     return DEFAULT_SESSION_CAP
+
+
+def _detect_cli_version() -> tuple[int, int, int] | None:
+    """Installed Claude Code version, or None if it can't be determined.
+
+    None is the fail-SAFE answer: an undetectable version keeps the hook's
+    original guarding behavior rather than assuming the cap is gone.
+    """
+    exe = shutil.which("claude")
+    if not exe:
+        return None
+    try:
+        result = subprocess.run(
+            [exe, "--version"], capture_output=True, text=True, timeout=10
+        )
+    except (subprocess.TimeoutExpired, OSError):
+        return None
+    if result.returncode != 0:
+        return None
+    match = _VERSION_RE.search(result.stdout or "")
+    if not match:
+        return None
+    return (int(match.group(1)), int(match.group(2)), int(match.group(3)))
+
+
+def _platform_cap_in_effect(state: dict) -> bool:
+    """Whether a per-session spawn cap actually constrains this session.
+
+    An explicitly set CLAUDE_CODE_MAX_SUBAGENTS_PER_SESSION is always honored:
+    the operator asked for a cap, so enforce it whatever the CLI version. With
+    the variable unset, the only cap is the platform's — and that was removed
+    in v2.1.223, so on newer releases there is nothing to guard.
+
+    The version lookup shells out (~0.6s), which is far too slow to repeat on
+    every Task spawn, so the answer is cached in the per-session state file and
+    resolved at most once per session.
+    """
+    if os.environ.get(CAP_ENV_VAR):
+        return True
+
+    if "platform_cap_in_effect" not in state:
+        version = _detect_cli_version()
+        state["detected_cli_version"] = (
+            ".".join(str(p) for p in version) if version else None
+        )
+        # Unknown version -> assume the cap is still there (fail safe).
+        state["platform_cap_in_effect"] = (
+            True if version is None else version < CAP_REMOVED_VERSION
+        )
+    return bool(state["platform_cap_in_effect"])
 
 
 def _load_config(project_root: Path) -> dict:
@@ -214,6 +285,13 @@ def main() -> None:
 
         state["spawn_count"] = state.get("spawn_count", 0) + 1
         count = state["spawn_count"]
+
+        # Nothing to guard against on a release where the cap was removed:
+        # keep counting (so the state stays useful and an operator who sets
+        # the env var mid-run is honored) but never pause or warn.
+        if not _platform_cap_in_effect(state):
+            _save_state(state_path, state)
+            sys.exit(0)
 
         cap = _session_cap()
         reserve = _clamped_reserve(

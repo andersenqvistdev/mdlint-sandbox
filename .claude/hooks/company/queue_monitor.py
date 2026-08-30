@@ -333,10 +333,15 @@ def render_dashboard(company_dir, completions_n=10):
     escalations = []
     esc_dir = company_dir / "escalations"
     if esc_dir.is_dir():
-        for fp in sorted(esc_dir.glob("*.json"), reverse=True):
+        for fp in esc_dir.glob("*.json"):
             esc = load_json(fp)
             if esc and esc.get("status") != "resolved":
                 escalations.append(esc)
+    # Newest first BY TIME. Sorting the filenames instead ordered by prefix
+    # ("task-" > "silence-" > "admission-"), which pushed whole categories to
+    # the bottom regardless of age — the newest escalation sorted last and was
+    # always the one the display cap dropped.
+    escalations.sort(key=lambda e: str(e.get("created_at") or ""), reverse=True)
     approvals = load_json(company_dir / "pending_approvals.json")
     pending_approvals = []
     if isinstance(approvals, dict):
@@ -355,12 +360,17 @@ def render_dashboard(company_dir, completions_n=10):
                 _tid = _t.get("task_id", "")
                 if _tid:
                     _title_map[_tid] = _t.get("title", "")
-        for e in escalations[:5]:
+        _ESC_SHOWN = 5
+        for e in escalations[:_ESC_SHOWN]:
             _eid = e.get("task_id", "?")
-            # Try to get title from escalation fields, metadata, queue lookup
+            # Try to get title from escalation fields, metadata, queue lookup.
+            # metadata.title is what silence_sentinel and task_admission write;
+            # without it every sentinel page rendered as "Unknown task".
+            _meta = e.get("metadata") or {}
             _title = (
                 e.get("title")
-                or e.get("metadata", {}).get("task_title")
+                or _meta.get("title")
+                or _meta.get("task_title")
                 or e.get("original_task", {}).get("title")
                 or _title_map.get(_eid)
                 or e.get("reason")
@@ -376,9 +386,18 @@ def render_dashboard(company_dir, completions_n=10):
             lines.append(
                 f"  \033[31m!\033[0m {_detail:<55} {relative_time(e.get('created_at', e.get('escalated_at')))}"
             )
-        for a in pending_approvals[:5]:
+        for a in pending_approvals[:_ESC_SHOWN]:
             lines.append(
                 f"  \033[33m?\033[0m {trunc(a.get('title', a.get('type', '?')), 55):<55} {relative_time(a.get('submitted_at', a.get('created_at')))}"
+            )
+        # Say what the cap dropped. A section headed "NEEDS ATTENTION (9)" that
+        # lists five reads as nine listed unless you count them.
+        _hidden = max(len(escalations) - _ESC_SHOWN, 0) + max(
+            len(pending_approvals) - _ESC_SHOWN, 0
+        )
+        if _hidden:
+            lines.append(
+                f"  \033[2m… and {_hidden} more — see .company/escalations/\033[0m"
             )
         lines.append("")
     else:
@@ -540,6 +559,59 @@ def heal_queue(company_dir, dry_run=False):
                             "from": source,
                         }
                     )
+
+    # Reconcile blocked tasks whose PR has already merged. When the deliverable
+    # gate holds a daemon PR and a human then merges it, nothing moves the task
+    # out of the blocked lane: the sweep above skips anything carrying a
+    # blocked_reason (treating it as a human-set block), and the judge writes
+    # exactly such a reason. The task then sits blocked forever while heal
+    # reports a healthy queue. Only a MERGED PR reconciles — get_pr_status
+    # returns None when the lookup fails and False for an open or
+    # closed-unmerged PR, and closed-unmerged is genuinely unresolved work.
+    for t in list(queue.get("blocked", [])):
+        pr_url = t.get("pr_url")
+        if not pr_url:
+            continue
+        is_merged, pr_number = get_pr_status(pr_url)
+        if is_merged is not True:
+            continue
+        task_id = t.get("task_id", "?")
+        findings.append(
+            {
+                "type": "merged_pr_still_blocked",
+                "severity": "high",
+                "task_id": task_id,
+                "title": t.get("title", "")[:60],
+                "reason": f"PR #{pr_number} merged but task still blocked",
+            }
+        )
+        if not dry_run:
+            queue["blocked"].remove(t)
+            t["status"] = "completed"
+            t["completed_at"] = now.isoformat()
+            # Keep the judge's verdict for audit, but drop the active-sounding
+            # field — a completed task reading as blocked is the exact
+            # ambiguity this rule exists to remove.
+            if t.get("blocked_reason"):
+                t["previous_blocked_reason"] = t["blocked_reason"]
+            t["blocked_reason"] = None
+            if not isinstance(t.get("notes"), list):
+                t["notes"] = []
+            t["notes"].append(
+                {
+                    "timestamp": now.isoformat(),
+                    "content": f"queue heal: reconciled after PR #{pr_number} merged",
+                }
+            )
+            queue.setdefault("completed", []).append(t)
+            modified = True
+            actions.append(
+                {
+                    "action": "completed_merged_pr_task",
+                    "task_id": task_id,
+                    "pr": pr_number,
+                }
+            )
 
     seen_ids = {}
     for q_name in ["pending", "in_progress", "blocked"]:
@@ -728,6 +800,16 @@ def heal_queue(company_dir, dry_run=False):
                                     :60
                                 ],
                                 "reason": f"unresolved for {age_h:.0f}h",
+                                # Detect-only, deliberately. Auto-archiving an
+                                # unread page is how a same-day fix became an
+                                # 11-day stall, so heal reports these and
+                                # leaves them for `escalation.py resolve`.
+                                "auto_fixable": False,
+                                "hint": (
+                                    "resolve with: escalation.py resolve "
+                                    f"--task-id {esc.get('task_id', fp.stem)} "
+                                    "--resolution <why>"
+                                ),
                             }
                         )
                 except (ValueError, TypeError):
@@ -777,14 +859,24 @@ def heal_queue(company_dir, dry_run=False):
 def render_heal_report(result):
     lines = []
     w = 78
-    mode = "DRY RUN" if result.get("dry_run") else "HEALED"
+    findings = result.get("findings", [])
+    actions = result.get("actions", [])
+    # The banner reports what happened, not merely which flag was passed. It
+    # used to read "HEALED" whenever dry_run was false, so a run that detected
+    # findings and acted on NONE of them announced itself as a repair. That is
+    # the failure shape this tool exists to catch: a control whose success
+    # message is independent of whether it did anything.
+    if result.get("dry_run"):
+        mode = "DRY RUN"
+    elif actions:
+        mode = "HEALED"
+    else:
+        mode = "NO ACTION TAKEN"
     lines.append("\033[1m" + "=" * w + "\033[0m")
     lines.append(f"\033[1m  QUEUE HEALTH CHECK \u2014 {mode}\033[0m")
     lines.append(f"  {result.get('timestamp', '')[:19]}")
     lines.append("\033[1m" + "=" * w + "\033[0m")
     lines.append("")
-    findings = result.get("findings", [])
-    actions = result.get("actions", [])
     if not findings:
         lines.append("  \033[32mQueue is healthy \u2014 no issues found.\033[0m")
         lines.append("")
@@ -815,11 +907,26 @@ def render_heal_report(result):
                 f"  \033[32m+\033[0m [{a.get('task_id', '?')[-8:]}] {a.get('action', '?').replace('_', ' ')}"
             )
         lines.append("")
-    elif result.get("dry_run"):
+    if result.get("dry_run"):
         lines.append(
             f"  \033[33mDry run \u2014 {len(findings)} issues. Run --heal without --dry-run to fix.\033[0m"
         )
         lines.append("")
+    else:
+        # Findings heal cannot repair must be named, not omitted. Silence here
+        # reads as "handled" against a HEALED banner, which is how stale
+        # escalations sat unresolved for 61h while heal reported success.
+        actioned = {a.get("task_id") for a in actions if a.get("task_id")}
+        unfixed = [f for f in findings if f.get("task_id") not in actioned]
+        if unfixed:
+            lines.append(
+                f"\033[1;33m  NOT AUTO-FIXED ({len(unfixed)}) \u2014 needs a human\033[0m"
+            )
+            for f in unfixed:
+                lines.append(
+                    f"  \033[33m\u2192\033[0m [{f.get('task_id', '?')[-8:]}] {f['type'].replace('_', ' ')}"
+                )
+            lines.append("")
     lines.append("\033[2m" + "-" * w + "\033[0m")
     return "\n".join(lines)
 

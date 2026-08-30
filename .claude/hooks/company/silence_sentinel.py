@@ -67,6 +67,8 @@ class SentinelConfig:
     scout_check_min_interval_hours: float = 6.0
     escalation_dedup_hours: float = 24.0
     scout_enabled: bool = True
+    git_update_blocked_hours: float = 1.0
+    git_update_blocked_min_failures: int = 3
 
     @property
     def company_dir(self) -> Path:
@@ -87,6 +89,10 @@ class SentinelConfig:
     @property
     def skips_path(self) -> Path:
         return self.company_dir / "state" / "autofill_brief_skips.jsonl"
+
+    @property
+    def git_update_failures_path(self) -> Path:
+        return self.company_dir / "state" / "git_update_failures.json"
 
     @property
     def escalations_dir(self) -> Path:
@@ -381,6 +387,60 @@ def check_brief_skips(
 # ---------------------------------------------------------------------------
 
 
+def check_git_update_blocked(
+    config: SentinelConfig, state: dict, now: datetime
+) -> dict | None:
+    """The daemon has been failing to fetch/pull origin/main for hours -> finding.
+
+    The daemon records every consecutive failure in
+    state/git_update_failures.json (forge_daemon._record_git_update_failure)
+    and deletes the file on the next successful pull. 314 consecutive
+    failures — a stale .git/index.lock, 2026-08-20 → 08-28 — produced only
+    WARNING lines while the checkout froze and every worktree shipped
+    against a stale base.
+    """
+    try:
+        data = json.loads(config.git_update_failures_path.read_text())
+    except (OSError, json.JSONDecodeError, FileNotFoundError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    try:
+        consecutive = int(data.get("consecutive", 0) or 0)
+    except (TypeError, ValueError):
+        return None
+    first = _parse_ts(data.get("first_failed_at"))
+    if first is None or consecutive < config.git_update_blocked_min_failures:
+        return None
+    blocked_hours = (now - first).total_seconds() / 3600
+    if blocked_hours <= config.git_update_blocked_hours:
+        return None
+    stage = data.get("stage") or "pull"
+    return {
+        "condition": "git_update_blocked",
+        "title": (
+            f"Git updates failing for {blocked_hours:.1f}h "
+            f"({consecutive} consecutive {stage} failures)"
+        ),
+        "details": {
+            "first_failed_at": data.get("first_failed_at"),
+            "last_failed_at": data.get("last_failed_at"),
+            "consecutive": consecutive,
+            "stage": stage,
+            "last_error": data.get("last_error"),
+            "note": (
+                "The daemon is running stale code and, wherever a worktree "
+                "falls back to local main, shipping against a stale base. "
+                "Usual causes: a .git/index.lock the policy will not remove "
+                "(non-empty and under an hour old), a permanent local "
+                "override that origin/main also changed, or an unreachable "
+                "remote. Fix the cause; the file clears on the next "
+                "successful pull."
+            ),
+        },
+    }
+
+
 def _raise_alert(
     config: SentinelConfig, state: dict, finding: dict, now: datetime
 ) -> bool:
@@ -481,6 +541,7 @@ def run_sentinel_cycle(
         lambda: check_queue_empty(config, state, now),
         lambda: check_daemon_restarts(config, state, now),
         lambda: check_brief_skips(config, state, now),
+        lambda: check_git_update_blocked(config, state, now),
     ):
         try:
             finding = check()
