@@ -55,15 +55,114 @@ its `--fix` flag was matching `\bfix\b` and misclassifying the whole goal as
 repair work demanding a verified pointer; the current regex reads it as a CLI
 flag, one of five concrete targets it now recognises.
 
-### Run 2 — from 2026-08-15
+### Run 2 — 2026-08-15 → 2026-08-29. **PASSED bars 1 and 2; bar 3 a QUALIFIED PASS.**
 
 - **Clock start:** 2026-08-15 (see intervention #2)
-- **14-day bar ends:** 2026-08-29
+- **14-day bar ended:** 2026-08-29; closed and verified 2026-08-30
 - **Framework:** synced from forge-framework at 2026-08-15, replacing the
   2026-08-03 freeze. Adds the brief-quality gate fix (#361), the signal-driven
   `backlog_generator.py`, the queue ping-pong fix (#370) and the QoS fix (#371).
 - **Daemon:** `com.forgelabs.daemon.mdlint-sandbox-d1bfdc`
 - **Repo:** https://github.com/andersenqvistdev/mdlint-sandbox
+
+**Measured outcome against the pre-registered bar:**
+
+| Bar | Required | Actual | Verdict |
+|---|---|---|---|
+| Consecutive unattended days | 14 | 14 (2026-08-15 → 08-29), 0 interventions in the window | **MET** |
+| Merged product PRs | ≥10 | **20** (#7–#47; #6 is the operator's framework sync and does not count) | **MET, 2×** |
+| Product hand-verified working | yes | runs, correct exit codes, 10 of 13 rules trustworthy on real input; link family wrong; one rule family never built | **QUALIFIED** |
+
+Verified 2026-08-30 by a four-lens adversarial verification (rule correctness,
+CLI contract, robustness, shipped-vs-claimed), 129 agents, artefacts outside
+the repo, sandbox untouched.
+
+**What works — measured, not asserted.** 13 rules registered (MDS01–03,
+MDW01–04, MDL01–03, MDT01–03). 114 crafted cases; the 83 with hard
+expectations passed 83/83 on both rule id and line number. 66 real Markdown
+files / 27,013 lines linted in 0.41 s with zero crashes and zero read errors.
+Exit-code contract exactly as documented: 0 clean, 1 violations, 2 operational
+error. `--format json` valid in 7/7 cases; `--ignore`, `--config`, `--fix`
+all behave as the README says; `--fix` is idempotent and (on LF input) touches
+only the lines it reported. Test suite at origin/main: **173 passed, 99.83 %
+line coverage**, ruff clean. Every one of the 20 product PRs touched only
+`src/`, `tests/`, `README.md`, `docs/rules.md`, `coverage.json` — none touched
+the daemon, the harness or CI.
+
+**Against an independent oracle** (a naive re-implementation written for the
+check, run over the same 27,013 lines) the whitespace, structure and table
+families are exact: MDW01 40/40, MDW02 0/0, MDW03 1/1, MDW04 9/9, MDS01 1/1,
+MDS02 0/0, MDS03 0/0, MDT03 0/0. It also found two genuine broken links in
+forge-framework's own docs (`docs/CLAUDE-full.md:16`, `SPEC.md:990`) — the
+product did real work on a real corpus.
+
+**What does not work.** The link family is not trustworthy: MDL02 reports
+every link whose text is a code span as "empty link text" (**6 of 6** corpus
+hits false — `mask_code_spans` blanks the span before the link is parsed), and
+MDL03 reports the destination of a nested badge link `[![img](src)](url)` and
+of a reference definition `[ref]: https://…` as bare URLs (**6 of 13** corpus
+hits false), with `--fix` rewriting them — including inside HTML attributes,
+which breaks the HTML. The fence tracker desyncs on valid CommonMark
+(info-string closers, `~~~` inside ```` ``` ````, four-backtick fences), hiding
+the rest of a file from every fence-aware rule; PR #38 fixed exactly this in
+`headings.py` and left the same copy-pasted tracker in `links.py`, `lists.py`
+and `md_t03`. And **G5 (three code-fence rules) does not exist**: 13 of the 16
+specified rules were built.
+
+**THE FINDING — self-tested code converges on self-consistent wrongness.**
+MDL02 is wrong on every real-world instance while its own test suite passes
+173/173 at 99.83 % coverage, because the worker that wrote the rule wrote the
+tests, against the same misunderstanding. Coverage measured the code, not the
+contract. Neither of Forge's two quality gates can see this: the deliverable
+judge reads the *diff*, and the coverage goal reads *line execution*. What
+caught it was an oracle **outside the artifact under test** — an independently
+written implementation and a real corpus. *A product built autonomously needs
+an external oracle, or its tests certify its bugs.*
+
+**Why G5 was never built — a framework defect, proven, not inferred.** G5
+received **0 tasks** for the entire run while G2, G4, G6 and G7 received 12
+each and G8 13. The cause is title-similarity dedup: the QUEUE-FILL title is
+built from the goal's success_metric and truncated to 60 characters, and G2,
+G5 and G6 all begin "Three rules implemented with tests:". Measured with the
+sandbox's own matcher:
+
+```
+sim(G5, G2) = 0.750   sim(G5, G4) = 0.750   sim(G5, G6) = 0.750
+threshold   = 0.70    -> any one queued sibling vetoes every G5 mint
+```
+
+One goal of nine was silently unbuildable for fourteen days. This is the
+forge-framework class fixed by PR #450 (2026-08-26, exact-title match for the
+QUEUE-FILL lane) and hardened by #487 (2026-08-30, `exact_duplicate_only` for
+every machine-minted lane) — **both merged after this sandbox's framework was
+frozen on 08-15**.
+
+**Why 9 of 20 product PRs are thin.** `goal_scheduler.log` records
+`goal_priorities` G2–G9 = 0.0 on every scan for the whole run: the assessor
+never credits a completed goal in a product repo, so complete goals were
+re-minted 11 times and workers received already-satisfied briefs, producing
+one-test PRs. The deliverable judge rejected 11 of the 20 diffs ("does not
+deliver", confidence 0.90–0.97) — **after** they had merged;
+`merge_audit.jsonl` records `deliverable_verdict: null, merge_lever:
+full_trust` for #20/#22/#32/#44/#46/#47. The judge is not gating this repo's
+merges.
+
+**The registered prediction — half held, and the miss is the interesting
+half.** `.planning/EXPERIMENT.md` predicted that after the greenfield boundary
+"task minting will degrade — either the mint rate drops, or minted tasks start
+failing the admission gate for lack of verified pointers." Neither happened:
+78 tasks were minted, 104 admission rejections span only 7 distinct titles,
+and the repo never left greenfield (the detector looks for top-level or
+`src/**/*.py` outside `.claude/`; this project's source is `src/mdlint/`, so
+the flip never fired — a detector gap worth its own fix). Minting did not
+degrade in volume. It degraded in **distribution**: one goal starved, four
+over-served. An aggregate mint rate cannot see that; only tasks-per-goal can.
+
+**Product-build autonomy, published separately as the protocol requires.**
+20 merged product PRs / 78 distinct product tasks = **26 % product-build
+autonomy** — the number the experiment existed to measure, against
+forge-framework's 82.5 % self-maintenance rate over the same period. They are
+not the same claim and this is the first time the first number exists.
 
 ## Interventions
 
@@ -71,6 +170,7 @@ flag, one of five concrete targets it now recognises.
 |---|-----------|------|-----|---------|
 | 1 | 2026-08-03 12:37 | `forge-queue approve --all` — approved 6 ideation ideas | The documented by-design touch from ProjectK's runbook. Without it the queue stays empty and no work starts. | **Yes (1/2)** |
 | 2 | 2026-08-15 06:30 | Stopped the daemon, rsynced `.claude/hooks/` from forge-framework over the 2026-08-03 freeze, restarted. `.company/`, `forge-config.json` and all product source left untouched; previous tree kept at `.claude/hooks.bak-20260815`. | Framework defect repair, not a nudge to the daemon's work: the sandbox was running a build whose brief-quality gate rejected 5 of 9 goals unconditionally, 315 times. Run 1's result is recorded above rather than discarded. | **No — ends Run 1, starts Run 2** |
+| 3 | 2026-08-30 16:20 | Closed Run 2, verified the product (bar 3), and re-synced `.claude/hooks/` + `bin/` from forge-framework to start Run 3 | Run 2's clock had expired; the verification is the bar, not a touch. The sync carries the four fixes the run's own findings produced (#450/#451/#452 dedup, #465 stale PID, #471 stale index.lock + origin/main worktrees, #487 exact dedup for machine lanes). | **No — Run 2 was over; starts Run 3** |
 
 ---
 

@@ -258,6 +258,37 @@ class DeliverableVerdict:
     sha: str | None = None
     skipped_reason: str | None = None
     pr_url: str | None = None
+    # "infra" when the judge never reached the model (a hook blocked the
+    # prompt, the CLI failed to start or timed out); "model" when the model
+    # answered but not in the verdict shape. None for verdicts and skips.
+    error_class: str | None = None
+
+
+# What a judge run prints when the project's UserPromptSubmit hook refused the
+# prompt — the model was never called. 2026-08-28: prompt_guard matched "wipe"
+# inside the embedded PR diff, four PRs on one file were held with nothing
+# but "no parseable verdict JSON" in the record.
+_HOOK_BLOCK_MARKERS = ("blocked by hook", "userpromptsubmit", "operation blocked")
+
+
+def classify_judge_failure(stdout: str | None, err: str | None) -> tuple[str, str]:
+    """Return (error_class, excerpt) for a judge run that produced no verdict.
+
+    The excerpt is what the CLI actually printed (stdout first, stderr after
+    a separator), bounded so it fits a gate record and a PR comment.
+    """
+    out = (stdout or "").strip()
+    stderr = (err or "").strip()
+    lowered = f"{out}\n{stderr}".lower()
+    if any(marker in lowered for marker in _HOOK_BLOCK_MARKERS) or not out:
+        klass = "infra"
+    else:
+        klass = "model"
+    parts = [p for p in (out[:500], stderr[:300]) if p]
+    excerpt = (
+        " | stderr: ".join(parts) if len(parts) == 2 else (parts[0] if parts else "")
+    )
+    return klass, excerpt or "<empty output>"
 
 
 def _decide(addresses_task: bool | None, confidence: float | None, threshold: float):
@@ -704,11 +735,12 @@ def _run_judge_cli(prompt: str, config: dict) -> tuple[str | None, str | None]:
         return None, "judge CLI timed out"
     except OSError as e:
         return None, f"judge CLI failed to start: {e}"
+    stderr_excerpt = (result.stderr or "").strip()[:500]
     if result.returncode != 0:
-        return result.stdout, (result.stderr or "judge CLI returned non-zero").strip()[
-            :500
-        ]
-    return result.stdout, None
+        return result.stdout, stderr_excerpt or "judge CLI returned non-zero"
+    # Exit 0 with stderr (a hook that flagged the prompt, a CLI warning): keep
+    # it — when stdout turns out not to be a verdict, this is the only trace.
+    return result.stdout, (stderr_excerpt or None)
 
 
 def judge_pr_deliverable(
@@ -747,7 +779,9 @@ def judge_pr_deliverable(
     threshold = float(config.get("confidenceThreshold", 0.7))
     on_error = config.get("onJudgeError", "block")
 
-    def _error_verdict(reason: str, *, sha: str | None = None) -> DeliverableVerdict:
+    def _error_verdict(
+        reason: str, *, sha: str | None = None, error_class: str | None = None
+    ) -> DeliverableVerdict:
         if on_error == "allow":
             blocked, needs_review = False, False
         else:
@@ -761,6 +795,7 @@ def judge_pr_deliverable(
             needs_manual_review=needs_review,
             error=reason,
             sha=sha,
+            error_class=error_class,
         )
         _record_decision(v)
         return v
@@ -854,11 +889,16 @@ def judge_pr_deliverable(
     )
     stdout, err = _run_judge_cli(prompt, config)
     if err and not stdout:
-        return _error_verdict(f"judge error: {err}", sha=sha)
+        return _error_verdict(f"judge error: {err}", sha=sha, error_class="infra")
 
     parsed = parse_verdict_json(stdout or "")
     if not parsed:
-        return _error_verdict("judge output had no parseable verdict JSON", sha=sha)
+        klass, excerpt = classify_judge_failure(stdout, err)
+        return _error_verdict(
+            f"judge output had no parseable verdict JSON ({klass}): {excerpt}",
+            sha=sha,
+            error_class=klass,
+        )
 
     addresses = parsed.get("addresses_task")
     if not isinstance(addresses, bool):

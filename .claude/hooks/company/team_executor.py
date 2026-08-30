@@ -57,11 +57,16 @@ assert_spawn_allowed = _spawn_guard.assert_spawn_allowed
 _employee_activator = None
 _company_resolver = None
 _native_teams_executor = None
+_worktree_integrity = None
 
 
 def _ensure_imports():
     """Lazily import sibling modules."""
-    global _employee_activator, _company_resolver, _native_teams_executor
+    global \
+        _employee_activator, \
+        _company_resolver, \
+        _native_teams_executor, \
+        _worktree_integrity
     if _employee_activator is not None:
         return
 
@@ -69,16 +74,20 @@ def _ensure_imports():
         from . import company_resolver as cr
         from . import employee_activator as ea
         from . import native_teams_executor as nte
+        from . import worktree_integrity as wi
 
         _employee_activator = ea
         _company_resolver = cr
         _native_teams_executor = nte
+        _worktree_integrity = wi
     except ImportError:
         import company_resolver as cr  # type: ignore[no-redef]
         import employee_activator as ea  # type: ignore[no-redef]
+        import worktree_integrity as wi  # type: ignore[no-redef]
 
         _employee_activator = ea
         _company_resolver = cr
+        _worktree_integrity = wi
         # Native teams executor may not exist in older installations
         try:
             import native_teams_executor as nte  # type: ignore[no-redef]
@@ -1120,8 +1129,20 @@ def _create_team_worktree(task: dict) -> tuple[Path, str] | None:
         subprocess.run(
             ["git", "branch", "-D", wt_branch], capture_output=True, timeout=15
         )
+        # origin/main, not local main — see company_resolver.preferred_base_ref.
+        base_ref = _company_resolver.preferred_base_ref()
+        # --no-track: see employee_activator._create_worker_worktree.
         res = subprocess.run(
-            ["git", "worktree", "add", "-b", wt_branch, str(wt_dir), "main"],
+            [
+                "git",
+                "worktree",
+                "add",
+                "--no-track",
+                "-b",
+                wt_branch,
+                str(wt_dir),
+                base_ref,
+            ],
             capture_output=True,
             text=True,
             timeout=30,
@@ -1215,6 +1236,19 @@ def execute_with_team(
         return _team_isolation_failure(
             composition, "refusing to run in the main repo root"
         )
+
+    # SCOUT-20260813-1 — ChainDrop-class defense: verify nothing has touched
+    # the worktree's `.claude/settings.json`, `.mcp.json` or `.claude/hooks/`
+    # since checkout, BEFORE the team session below can start. Covers both the
+    # daemon-supplied project_dir and the self-created fallback above.
+    _wt_integrity = _worktree_integrity.verify_worktree_integrity(project_dir)
+    if not _wt_integrity.ok:
+        _worktree_integrity.log_integrity_violation(
+            main_root, str(task.get("task_id")), project_dir, _wt_integrity
+        )
+        if self_worktree is not None:
+            _remove_team_worktree(self_worktree)
+        return _team_isolation_failure(composition, _wt_integrity.reason)
 
     try:
         result = _run_team_in(task, composition, config, project_dir)

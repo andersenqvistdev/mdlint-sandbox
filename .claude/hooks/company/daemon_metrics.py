@@ -156,7 +156,13 @@ class DaemonMetricsTracker:
     """Records daemon uptime windows and restart events to daemon_metrics.json."""
 
     def __init__(self, metrics_file: str | Path = METRICS_FILE) -> None:
-        self.path = Path(metrics_file)
+        path = Path(metrics_file)
+        # A cwd-relative path under a hermetic test run (tests/conftest.py sets
+        # FORGE_HERMETIC_COMPANY_DIR) must never reach the real .company/state.
+        hermetic = os.environ.get("FORGE_HERMETIC_COMPANY_DIR")
+        if hermetic and not path.is_absolute():
+            path = Path(hermetic) / "state" / path.name
+        self.path = path
 
     # ------------------------------------------------------------------
     # Public API

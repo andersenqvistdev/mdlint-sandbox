@@ -946,6 +946,181 @@ def record_task_cost(
     }
 
 
+# ---------------------------------------------------------------------------
+# Measured task token usage
+#
+# The agent provider is invoked in full agent mode without --output-format, so
+# no usage figures reach the worker's stdout. Claude Code does, however, write
+# a session transcript per working directory to
+# ``~/.claude/projects/<slugified-cwd>/<session>.jsonl`` with a per-message
+# ``usage`` block. The daemon gives every task attempt its own worktree, so the
+# transcript directory name carries the task_id -- which is what makes a task's
+# real consumption recoverable after the worker has exited.
+# ---------------------------------------------------------------------------
+
+CLAUDE_PROJECTS_DIR = Path.home() / ".claude" / "projects"
+
+# Cache tokens are billed relative to the base input rate, so they are folded
+# into an input-equivalent count rather than counted as plain input (which
+# would price an 8M-token cache read like 8M fresh input tokens).
+CACHE_WRITE_INPUT_MULTIPLIER = 1.25
+CACHE_READ_INPUT_MULTIPLIER = 0.10
+
+
+@dataclass
+class TokenUsage:
+    """Measured token counts for one task execution."""
+
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cache_read_tokens: int = 0
+    cache_creation_tokens: int = 0
+    transcripts: int = 0
+
+    @property
+    def total_tokens(self) -> int:
+        """Every token the task actually consumed."""
+        return (
+            self.input_tokens
+            + self.output_tokens
+            + self.cache_read_tokens
+            + self.cache_creation_tokens
+        )
+
+    @property
+    def billable_input_tokens(self) -> int:
+        """Input-equivalent tokens, with cache reads/writes priced against input."""
+        return int(
+            self.input_tokens
+            + self.cache_creation_tokens * CACHE_WRITE_INPUT_MULTIPLIER
+            + self.cache_read_tokens * CACHE_READ_INPUT_MULTIPLIER
+        )
+
+
+def _slugify_project_path(project_root: str | Path) -> str:
+    """Mirror Claude Code's transcript directory naming for a working dir."""
+    resolved = str(Path(project_root).resolve())
+    return "".join(c if c.isalnum() else "-" for c in resolved)
+
+
+def _transcript_dirs(
+    task_id: str | None,
+    project_root: str | Path | None,
+    projects_dir: Path | None = None,
+) -> list[Path]:
+    """Transcript directories for a task, preferring an exact worktree match."""
+    base = projects_dir or CLAUDE_PROJECTS_DIR
+    if not base.is_dir():
+        return []
+
+    if project_root:
+        exact = base / _slugify_project_path(project_root)
+        if exact.is_dir():
+            return [exact]
+
+    if task_id:
+        return sorted(p for p in base.glob(f"*{task_id}*") if p.is_dir())
+
+    return []
+
+
+def collect_task_token_usage(
+    task_id: str | None = None,
+    project_root: str | Path | None = None,
+    since: float | None = None,
+    projects_dir: Path | None = None,
+) -> TokenUsage:
+    """Sum measured token usage from a task's Claude Code session transcripts.
+
+    Args:
+        task_id: Task identifier, matched against transcript directory names.
+        project_root: Worktree path, used for an exact directory match.
+        since: Only read transcripts modified at/after this epoch time. Retries
+            get a fresh worktree, so this keeps an earlier attempt's tokens from
+            being counted again when a later attempt records.
+        projects_dir: Override for the transcript root (tests).
+
+    Returns:
+        TokenUsage. All-zero when nothing could be measured -- never raises.
+    """
+    usage = TokenUsage()
+
+    for directory in _transcript_dirs(task_id, project_root, projects_dir):
+        for transcript in sorted(directory.glob("*.jsonl")):
+            try:
+                if since is not None and transcript.stat().st_mtime < since:
+                    continue
+                with open(transcript, encoding="utf-8") as handle:
+                    lines = list(handle)
+            except (OSError, ValueError):
+                continue
+
+            usage.transcripts += 1
+            for line in lines:
+                try:
+                    record = json.loads(line)
+                except ValueError:
+                    continue
+                message = record.get("message")
+                if not isinstance(message, dict):
+                    continue
+                counts = message.get("usage")
+                if not isinstance(counts, dict):
+                    continue
+                usage.input_tokens += counts.get("input_tokens") or 0
+                usage.output_tokens += counts.get("output_tokens") or 0
+                usage.cache_read_tokens += counts.get("cache_read_input_tokens") or 0
+                usage.cache_creation_tokens += (
+                    counts.get("cache_creation_input_tokens") or 0
+                )
+
+    return usage
+
+
+def record_task_tokens(
+    task_id: str,
+    employee_id: str,
+    usage: TokenUsage,
+    model: str = DEFAULT_MODEL,
+) -> dict:
+    """Record measured token consumption and cost for one task execution."""
+    if usage.total_tokens <= 0:
+        return {"success": False, "reason": "no_usage_measured", "total_tokens": 0}
+
+    data = load_efficiency_data()
+    date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    empty_totals = {"executive_tokens": 0, "task_tokens": 0, "total_tokens": 0}
+
+    token_usage = data.setdefault("token_usage", {"daily": {}, "totals": {}})
+    daily = token_usage.setdefault("daily", {})
+    day_data = daily.setdefault(date_str, dict(empty_totals))
+    day_data["task_tokens"] = day_data.get("task_tokens", 0) + usage.total_tokens
+    day_data["total_tokens"] = day_data.get("total_tokens", 0) + usage.total_tokens
+
+    totals = token_usage.setdefault("totals", dict(empty_totals))
+    totals["task_tokens"] = totals.get("task_tokens", 0) + usage.total_tokens
+    totals["total_tokens"] = totals.get("total_tokens", 0) + usage.total_tokens
+
+    save_efficiency_data(data)
+
+    cost = record_task_cost(
+        task_id=task_id,
+        employee_id=employee_id,
+        input_tokens=usage.billable_input_tokens,
+        output_tokens=usage.output_tokens,
+        model=model,
+    )
+
+    return {
+        "success": True,
+        "task_id": task_id,
+        "total_tokens": usage.total_tokens,
+        "cache_read_tokens": usage.cache_read_tokens,
+        "cost_usd": cost.get("cost_usd"),
+        "transcripts": usage.transcripts,
+    }
+
+
 def record_session_cost(
     session_id: str,
     executive_id: str,

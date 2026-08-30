@@ -47,6 +47,7 @@ from __future__ import annotations
 
 import argparse
 import atexit
+import fnmatch
 import hashlib
 import json
 import logging
@@ -130,6 +131,34 @@ cron_scheduler_mod = None
 task_result_writer = None
 # Approved-idea auto-conversion
 idea_to_task_converter_mod = None
+
+
+# --- Discovery thread state (WS-121) -----------------------------------------
+#
+# The discovery thread calls Claude inline, which freezes in AGENT mode (no
+# --print), so it was disabled with a bare `return` at the top of its worker.
+# That left ten subsystems dormant while startup still logged "Discovery thread
+# started (interval=1800s)" -- a healthy-looking signal for machinery that never
+# ran. The executive loop last executed 2026-04-06 and nothing said so.
+#
+# Naming the state makes the disable a single switch instead of an unreachable
+# statement, and lets both log lines tell the truth. Flip to True only once the
+# AGENT-mode freeze is fixed; everything below the worker's `return` is what has
+# to work again at that point.
+DISCOVERY_ENABLED = False
+DISCOVERY_DISABLED_REASON = "WS-121: inline Claude calls freeze in AGENT mode"
+DISCOVERY_DORMANT_SUBSYSTEMS = (
+    "proactive scan",
+    "strategic planning",
+    "weekly planning",
+    "daily planning",
+    "executive loop",
+    "self-improvement",
+    "feedback monitor",
+    "escalation cleanup",
+    "artifact generation",
+    "vision auto-refresh",
+)
 
 
 def _is_daemon_task(task: dict) -> bool:
@@ -478,6 +507,15 @@ class DaemonConfig:
         default_factory=lambda: Path(".company/runtime/daemon.heartbeat")
     )
     log_file: Path = field(default_factory=lambda: Path(".company/logs/daemon.log"))
+    # Where uptime windows / restart events go. Threaded into the metrics
+    # tracker so a test's DaemonConfig points at tmp_path: until 2026-08-30
+    # start_daemon(tmp_config) wrote the tracker's cwd-relative default and
+    # the real daemon_metrics.json held 100/100 zero-second pytest sessions —
+    # G7's primary uptime source saw 2.5 uptime-days from a daemon running
+    # since March.
+    metrics_file: Path = field(
+        default_factory=lambda: Path(".company/state/daemon_metrics.json")
+    )
     # Absolute (home-anchored) so it is NOT the cwd-relative antipattern the other
     # path fields carry; tests override it to a fixture dir for hermeticity.
     launchagent_dir: Path = field(
@@ -1958,6 +1996,83 @@ def is_process_alive(pid: int) -> bool:
         return False
 
 
+# A daemon can only have started after the machine booted; anything earlier is
+# a PID file from a previous boot. The slack absorbs clock adjustments after boot.
+_BOOT_TIME_TOLERANCE = timedelta(minutes=5)
+
+
+def system_boot_time() -> datetime | None:
+    """Return the current boot time (UTC), or None if it cannot be determined.
+
+    Lets the PID checks recognise a PID file written before the current boot:
+    the process it names cannot have survived the reboot, even when the PID
+    number is alive again under a different process.
+    """
+    try:
+        if sys.platform == "darwin":
+            out = subprocess.run(
+                ["sysctl", "-n", "kern.boottime"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+                check=False,
+            ).stdout
+            # "{ sec = 1787894826, usec = 462321 } Fri Aug 28 07:27:06 2026"
+            _, found, rest = out.partition("sec =")
+            secs = rest.split(",", 1)[0].strip() if found else ""
+            if secs.isdigit():
+                return datetime.fromtimestamp(int(secs), tz=timezone.utc)
+        elif sys.platform.startswith("linux"):
+            with open("/proc/stat", encoding="utf-8") as f:
+                for line in f:
+                    if line.startswith("btime "):
+                        return datetime.fromtimestamp(
+                            int(line.split()[1]), tz=timezone.utc
+                        )
+    except (OSError, ValueError, subprocess.SubprocessError):
+        pass
+    return None
+
+
+def is_daemon_state_alive(
+    state: DaemonState, *, boot_time: datetime | None = None
+) -> bool:
+    """Whether the daemon recorded in ``state`` is still the running process.
+
+    ``os.kill(pid, 0)`` alone is not enough. The daemon is one of the first
+    processes launchd starts after a boot, so it gets a low PID — and the next
+    boot hands that same PID to some other early process. On 2026-08-28 PID 362
+    belonged to ``autofsd`` while daemon.pid still named it, and every start
+    attempt exited "already running" for hours. A daemon whose ``started_at``
+    predates the current boot cannot be alive, whatever the PID says now.
+
+    Falls back to plain PID liveness when the boot time or ``started_at`` is
+    unknown, so an unreadable clock can never make two daemons start.
+    """
+    if not is_process_alive(state.pid):
+        return False
+    boot = boot_time if boot_time is not None else system_boot_time()
+    if boot is None:
+        return True
+    try:
+        started = datetime.fromisoformat(state.started_at)
+    except (TypeError, ValueError):
+        return True
+    if started.tzinfo is None:
+        started = started.replace(tzinfo=timezone.utc)
+    return started >= boot - _BOOT_TIME_TOLERANCE
+
+
+def describe_stale_pid(state: DaemonState) -> str:
+    """Explain, for logs, why a PID file is being treated as stale."""
+    if is_process_alive(state.pid):
+        return (
+            f"PID {state.pid} is alive but was recorded before the current boot "
+            f"(started {state.started_at}) — the PID was reused by another process"
+        )
+    return f"PID {state.pid} not running"
+
+
 def is_daemon_running(config: DaemonConfig) -> bool:
     """Check if daemon is currently running.
 
@@ -1975,8 +2090,9 @@ def is_daemon_running(config: DaemonConfig) -> bool:
     if state is None:
         return False
 
-    # Verify process is actually running
-    return is_process_alive(state.pid)
+    # Verify process is actually running — and is not a reused PID from a
+    # previous boot.
+    return is_daemon_state_alive(state)
 
 
 # -----------------------------------------------------------------------------
@@ -3943,10 +4059,12 @@ def _should_check_git_updates(config: DaemonConfig) -> bool:
     return (now - _last_git_update_check) >= interval
 
 
-def _check_for_git_updates() -> bool:
+def _check_for_git_updates(failures_file: Path | None = None) -> bool:
     """Fetch origin and check if origin/main is ahead of local main.
 
-    Returns True if new commits are available.
+    Returns True if new commits are available. ``failures_file`` (the daemon
+    passes _GIT_UPDATE_FAILURES_FILE) receives fetch failures and is cleared
+    when local main turns out to be current; None records nothing.
     """
     global _last_git_update_check
     _last_git_update_check = time.time()
@@ -3959,7 +4077,8 @@ def _check_for_git_updates() -> bool:
             timeout=30,
         )
         if fetch_result.returncode != 0:
-            logger.debug(f"[Git Update] fetch failed: {fetch_result.stderr.strip()}")
+            logger.warning(f"[Git Update] fetch failed: {fetch_result.stderr.strip()}")
+            _record_git_update_failure(failures_file, "fetch", fetch_result.stderr)
             return False
 
         # Compare local HEAD with origin/main
@@ -3974,18 +4093,172 @@ def _check_for_git_updates() -> bool:
             if count > 0:
                 logger.info(f"[Git Update] {count} new commit(s) on origin/main")
                 return True
+            # Local main is at origin/main: the daemon is demonstrably current,
+            # so an earlier streak (a transient fetch error, say) is over. A
+            # streak that matters — origin ahead, pull failing — keeps taking
+            # the True branch above and is judged by the pull every cycle.
+            _clear_git_update_failures(failures_file)
 
         return False
 
     except subprocess.TimeoutExpired:
-        logger.debug("[Git Update] fetch timed out")
+        logger.warning("[Git Update] fetch timed out")
+        _record_git_update_failure(failures_file, "fetch", "timed out")
         return False
     except (OSError, ValueError) as e:
         logger.debug(f"[Git Update] check error: {e}")
         return False
 
 
-def _perform_git_pull() -> bool:
+# Paths whose local state is dirty BY DESIGN, and so can never clear.
+#
+# forge-config.json and .claude/settings.json carry permanent local overrides
+# (measured 2026-08-26: +28/-28 and +17/-4 against origin/main). The pre-pull
+# dirty check treated them as "someone left uncommitted work here" and refused
+# to pull — every cycle, forever. The daemon had therefore NEVER pulled: it ran
+# whatever code it started with while its own merged fixes sat unused, and the
+# per-cycle warning read like a transient condition rather than a permanent one.
+#
+# Excluding them is safe. They only matter to a fast-forward if the incoming
+# commits actually touch them, and git refuses that case on its own — which the
+# failure branch below now reports explicitly instead of blaming a dirty tree.
+_PERMANENTLY_DIRTY_FALLBACK = (
+    "forge-website/*",
+    "CLAUDE.md",
+    "forge-config.json",
+    ".claude/settings.json",
+    "pyproject.toml",
+    "uv.lock",
+)
+
+
+def _permanently_dirty_paths() -> tuple[str, ...]:
+    """humanProtected paths from config, falling back to the known set."""
+    try:
+        with open("forge-config.json", encoding="utf-8") as f:
+            declared = (json.load(f).get("humanProtected") or {}).get("paths")
+        if isinstance(declared, list) and declared:
+            return tuple(str(p) for p in declared if isinstance(p, str))
+    except Exception:
+        pass
+    return _PERMANENTLY_DIRTY_FALLBACK
+
+
+def _is_permanently_dirty(rel_path: str) -> bool:
+    """True when a dirty path is one the daemon is forbidden to modify anyway."""
+    return any(
+        fnmatch.fnmatch(rel_path, pattern) for pattern in _permanently_dirty_paths()
+    )
+
+
+def _git_lock_policy():
+    """company_resolver, imported lightly — preflight runs before _ensure_imports()."""
+    if company_resolver is not None:
+        return company_resolver
+    try:
+        from . import company_resolver as cr  # type: ignore[no-redef]
+    except ImportError:
+        import company_resolver as cr  # type: ignore[no-redef]
+    return cr
+
+
+_GIT_UPDATE_FAILURES_FILE = Path(".company/state/git_update_failures.json")
+
+
+def _record_git_update_failure(
+    failures_file: Path | None, stage: str, error: str
+) -> None:
+    """Persist one more consecutive git-update failure for the silence sentinel.
+
+    314 consecutive failed pulls in mdlint-sandbox (2026-08-20 → 08-28)
+    produced 314 WARNING lines and nothing else. The count, the first-failure
+    time and the last error go to a state file the sentinel pages on after an
+    hour (silence_sentinel.check_git_update_blocked).
+
+    ``failures_file`` is explicit on purpose: the daemon passes
+    _GIT_UPDATE_FAILURES_FILE, and a caller without one (tests, ad-hoc
+    calls) records nothing. A cwd-relative default here wrote a fake
+    3-failure streak into the real .company/state during a test run
+    (2026-08-28) — the CLAUDE.md test-isolation antipattern.
+    """
+    if failures_file is None:
+        return
+    now = datetime.now(timezone.utc).isoformat()
+    try:
+        data: dict = {}
+        if failures_file.exists():
+            try:
+                data = json.loads(failures_file.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, OSError):
+                data = {}
+        record = {
+            "consecutive": int(data.get("consecutive", 0) or 0) + 1,
+            "first_failed_at": data.get("first_failed_at") or now,
+            "last_failed_at": now,
+            "stage": stage,
+            "last_error": (error or "").strip()[:500],
+        }
+        failures_file.parent.mkdir(parents=True, exist_ok=True)
+        failures_file.write_text(json.dumps(record, indent=2), encoding="utf-8")
+    except (OSError, TypeError, ValueError):
+        pass
+
+
+def _clear_git_update_failures(failures_file: Path | None) -> None:
+    """A successful pull — or a check that finds local main current — ends
+    the streak."""
+    if failures_file is None:
+        return
+    try:
+        failures_file.unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
+def _clear_stale_index_lock(repo_root: Path | None = None) -> float | None:
+    """Remove ``.git/index.lock`` when it is stale by the shared policy.
+
+    Policy — company_resolver.stale_git_lock_age: a 0-byte lock older than
+    five minutes, or any lock older than an hour. An empty lock is a git
+    process that died before writing the index (the incident lock was 0 bytes
+    and 7.4 days old); a non-empty one may be a live interactive commit.
+
+    Returns the age (seconds) of the lock that was removed, or None when
+    there was nothing to remove (absent, not stale yet, or unremovable).
+    """
+    lock = (repo_root if repo_root is not None else Path(".")) / ".git" / "index.lock"
+    try:
+        if not lock.exists():
+            return None
+        age = _git_lock_policy().clear_stale_git_lock(lock)
+    except OSError as e:
+        logger.warning(f"[Git] Could not remove stale .git/index.lock: {e}")
+        return None
+    except Exception as e:
+        logger.warning(f"[Git] Could not evaluate .git/index.lock: {e}")
+        return None
+    if age is None:
+        return None
+    logger.warning(
+        f"[Git] Removed stale .git/index.lock ({int(age)}s old) — it was "
+        "blocking every pull"
+    )
+    return age
+
+
+def _preferred_base_ref() -> str:
+    """Base ref for new task worktrees — see company_resolver.preferred_base_ref.
+
+    Never blocks daemon operation: any failure falls back to local ``main``.
+    """
+    try:
+        _ensure_imports()
+        return company_resolver.preferred_base_ref(Path.cwd())
+    except Exception:
+        return "main"
+
+
+def _perform_git_pull(failures_file: Path | None = None) -> bool:
     """Pull latest changes from origin/main (fast-forward only).
 
     Returns True if pull succeeded.
@@ -3998,11 +4271,15 @@ def _perform_git_pull() -> bool:
             timeout=10,
         )
         if status_result.returncode == 0 and status_result.stdout.strip():
-            # Filter out untracked files (??) — they don't conflict with pull
+            # Filter out untracked files (??) — they don't conflict with pull —
+            # and paths that are dirty by design and can never clear.
             tracked_changes = [
                 line
                 for line in status_result.stdout.strip().splitlines()
                 if not line.startswith("??")
+                and not _is_permanently_dirty(
+                    line.split(None, 1)[-1] if " " in line else line
+                )
             ]
             if tracked_changes:
                 shown = tracked_changes[:5]
@@ -4026,16 +4303,50 @@ def _perform_git_pull() -> bool:
         )
         if pull_result.returncode == 0:
             logger.info(f"[Git Update] Pull succeeded: {pull_result.stdout.strip()}")
+            _clear_git_update_failures(failures_file)
             return True
         else:
-            logger.warning(f"[Git Update] Pull failed: {pull_result.stderr.strip()}")
+            stderr = pull_result.stderr.strip()
+            # The one failure this design knowingly accepts: main changed a file
+            # that carries permanent local overrides, so a fast-forward would
+            # overwrite them and git refuses. Name it, because "pull failed" on
+            # its own reads as transient and this state persists until a human
+            # reconciles the override.
+            if "would be overwritten" in stderr or "local changes" in stderr:
+                logger.warning(
+                    "[Git Update] Pull refused — origin/main changed a file that "
+                    "carries permanent local overrides (%s). The daemon will keep "
+                    "running its current code until this is reconciled by hand: %s",
+                    ", ".join(_permanently_dirty_paths()),
+                    stderr,
+                )
+            else:
+                if "index.lock" in stderr and _clear_stale_index_lock() is not None:
+                    retry = subprocess.run(
+                        ["git", "pull", "--ff-only", "origin", "main"],
+                        capture_output=True,
+                        text=True,
+                        timeout=60,
+                    )
+                    if retry.returncode == 0:
+                        logger.info(
+                            "[Git Update] Pull succeeded after clearing a stale "
+                            f"index.lock: {retry.stdout.strip()}"
+                        )
+                        _clear_git_update_failures(failures_file)
+                        return True
+                    stderr = retry.stderr.strip()
+                logger.warning(f"[Git Update] Pull failed: {stderr}")
+            _record_git_update_failure(failures_file, "pull", stderr)
             return False
 
     except subprocess.TimeoutExpired:
         logger.warning("[Git Update] Pull timed out")
+        _record_git_update_failure(failures_file, "pull", "timed out")
         return False
     except OSError as e:
         logger.warning(f"[Git Update] Pull error: {e}")
+        _record_git_update_failure(failures_file, "pull", str(e))
         return False
 
 
@@ -4510,10 +4821,25 @@ def _worktree_base() -> Path:
         return Path("/tmp/forge-worktrees")
 
 
+def _state_dir() -> Path:
+    """``.company/state`` via company_resolver — hermetic-aware under a test run.
+
+    A bare ``Path(".company/state")`` is the primary checkout whenever pytest
+    runs there: stranded_harvest.jsonl gained 16 fixture rows during one suite
+    run on 2026-08-30 through exactly that path. The resolver redirects the
+    framework's own .company to FORGE_HERMETIC_COMPANY_DIR; in production the
+    two are the same directory.
+    """
+    try:
+        return Path(_git_lock_policy().get_company_dir()) / "state"
+    except Exception:
+        return Path(".company") / "state"
+
+
 def _append_harvest_audit(record: dict) -> None:
     """Append one JSONL line to the stranded-harvest audit (best-effort)."""
     try:
-        path = Path(".company") / "state" / "stranded_harvest.jsonl"
+        path = _state_dir() / "stranded_harvest.jsonl"
         path.parent.mkdir(parents=True, exist_ok=True)
         record = {
             "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -9465,21 +9791,45 @@ def run_preflight_checks(config: DaemonConfig) -> list[dict]:
         except (ValueError, OSError) as e:
             return False, f"org.json invalid: {e}"
 
-    # 7. No stale .git/index.lock
+    # 7. No stale .git/index.lock — a stale one is removed, not just reported:
+    # a WARN here used to be the last anyone heard of it while every pull
+    # failed for days. Policy: company_resolver.stale_git_lock_age.
     def check_git_lock():
         lock = Path(".git/index.lock")
         if lock.exists():
-            # Check if it's truly stale (older than 5 minutes)
             try:
-                age = time.time() - lock.stat().st_mtime
-                if age > 300:
-                    return False, f"stale .git/index.lock ({int(age)}s old)"
-                return (
-                    True,
-                    f".git/index.lock exists but recent ({int(age)}s) — may be active",
-                )
+                st = lock.stat()
             except OSError:
                 return False, ".git/index.lock exists, cannot stat"
+            age = time.time() - st.st_mtime
+            try:
+                stale_age = _git_lock_policy().stale_git_lock_age(lock)
+            except Exception:
+                stale_age = None
+            if stale_age is not None:
+                removed = _clear_stale_index_lock()
+                if removed is not None:
+                    return (
+                        True,
+                        f"removed stale .git/index.lock ({int(removed)}s old, "
+                        f"{st.st_size} bytes)",
+                    )
+                return (
+                    False,
+                    f"stale .git/index.lock ({int(age)}s old) could not be removed",
+                )
+            if age > 300:
+                return (
+                    False,
+                    f".git/index.lock is {int(age)}s old and {st.st_size} bytes — "
+                    "left in place: a non-empty lock is only removed after 1h "
+                    "(it may be a live interactive commit); remove it by hand if "
+                    "no git process is running",
+                )
+            return (
+                True,
+                f".git/index.lock exists but recent ({int(age)}s) — may be active",
+            )
         return True, "no lock file"
 
     # 8. .company/state is not inside a cloud-sync folder (iCloud/OneDrive/Dropbox).
@@ -9795,6 +10145,9 @@ def run_daemon_loop(config: DaemonConfig) -> int:
                         _wt_branches.add(_line.split("refs/heads/", 1)[1])
 
             _cleaned = 0
+            # Measure "merged" against the ref worktrees branch from — local
+            # main can be days behind when its pull is blocked.
+            _merged_ref = _preferred_base_ref()
             for _branch_line in _branch_list.stdout.strip().splitlines():
                 _branch_name = _branch_line.strip().lstrip("* ")
                 if not _branch_name or _branch_name in ("main", "master"):
@@ -9803,7 +10156,7 @@ def run_daemon_loop(config: DaemonConfig) -> int:
                     continue
                 # Check if branch is merged into main
                 _merged = subprocess.run(
-                    ["git", "branch", "--merged", "main", "--list", _branch_name],
+                    ["git", "branch", "--merged", _merged_ref, "--list", _branch_name],
                     capture_output=True,
                     text=True,
                     timeout=10,
@@ -10004,14 +10357,19 @@ def run_daemon_loop(config: DaemonConfig) -> int:
     _DISCOVERY_INTERVAL = config.discovery_loop_interval_seconds
 
     def _discovery_loop_worker():
-        """Background thread: run discovery & planning operations every 2.5 minutes."""
-        # WS-121: Discovery thread disabled. It calls Claude inline which
-        # freezes in AGENT mode (no --print). All task generation is now
-        # human-driven via /company-request.
-        logger.info(
-            "[DISCOVERY] Thread DISABLED (WS-121: inline Claude calls freeze in AGENT mode)"
-        )
-        return
+        """Background thread: run discovery & planning operations every 2.5 minutes.
+
+        Currently a no-op -- see DISCOVERY_DISABLED_REASON. Everything below the
+        ``return`` is retained, not live: it is what has to work again once the
+        AGENT-mode freeze is fixed.
+        """
+        if not DISCOVERY_ENABLED:
+            logger.warning(
+                "[DISCOVERY] Thread DISABLED (%s). Dormant: %s",
+                DISCOVERY_DISABLED_REASON,
+                ", ".join(DISCOVERY_DORMANT_SUBSYSTEMS),
+            )
+            return
         logger.info(f"[DISCOVERY] Thread started (interval={_DISCOVERY_INTERVAL}s)")
         while not _shutdown_requested:
             _disc_cycle_start = time.time()
@@ -10203,9 +10561,21 @@ def run_daemon_loop(config: DaemonConfig) -> int:
         daemon=True,
     )
     _discovery_thread.start()
-    logger.info(
-        f"[DISCOVERY] Discovery thread started (interval={_DISCOVERY_INTERVAL}s)"
-    )
+    # Report what the thread will actually DO, not that it was spawned. This
+    # line used to read "Discovery thread started (interval=1800s)"
+    # unconditionally, eight seconds after the worker logged that it was
+    # disabled and returned -- so every startup published a healthy-looking
+    # signal for ten dormant subsystems, and the disable read as noise.
+    if DISCOVERY_ENABLED:
+        logger.info(
+            f"[DISCOVERY] Discovery thread started (interval={_DISCOVERY_INTERVAL}s)"
+        )
+    else:
+        logger.warning(
+            "[DISCOVERY] Discovery thread NOT running (%s) — %d subsystems dormant",
+            DISCOVERY_DISABLED_REASON,
+            len(DISCOVERY_DORMANT_SUBSYSTEMS),
+        )
 
     # Task 83.5: Track loop timing to detect sleep/wake gaps
     _last_loop_time = time.time()
@@ -10817,8 +11187,8 @@ def run_daemon_loop(config: DaemonConfig) -> int:
 
             # Git auto-update: check if origin/main has new commits
             if _should_check_git_updates(config):
-                if _check_for_git_updates():
-                    if _perform_git_pull():
+                if _check_for_git_updates(_GIT_UPDATE_FAILURES_FILE):
+                    if _perform_git_pull(_GIT_UPDATE_FAILURES_FILE):
                         # WS-119 1.6: Only restart if engine-loaded files changed.
                         # Doc/website/test changes don't need a restart.
                         engine_changed, changed_files = _git_pull_changed_engine_files()
@@ -11733,6 +12103,9 @@ def run_daemon_loop(config: DaemonConfig) -> int:
                             # because the first run cleared any in-flight contention.
                             _wt_result = None
                             _wt_attempt = 0
+                            # origin/main, not local main: the primary checkout
+                            # can be stale for days when its pull is blocked.
+                            _wt_base_ref = _preferred_base_ref()
                             while _wt_attempt < 2:
                                 _wt_attempt += 1
                                 try:
@@ -11741,10 +12114,11 @@ def run_daemon_loop(config: DaemonConfig) -> int:
                                             "git",
                                             "worktree",
                                             "add",
+                                            "--no-track",
                                             "-b",
                                             _wt_branch,
                                             _wt_dir,
-                                            "main",
+                                            _wt_base_ref,
                                         ],
                                         capture_output=True,
                                         text=True,
@@ -11793,6 +12167,65 @@ def run_daemon_loop(config: DaemonConfig) -> int:
                             )
                         except Exception:
                             pass
+                        _wt_dir = None
+
+                if _wt_dir:
+                    # SCOUT-20260813-1 — ChainDrop-class defense: verify
+                    # nothing has touched this freshly created worktree's
+                    # `.claude/settings.json`, `.mcp.json` or `.claude/hooks/`
+                    # since checkout, BEFORE any session starts there. A
+                    # SessionStart hook auto-executes the instant a session
+                    # opens — before any prompt is sent — so a tampered
+                    # worktree must never reach the worker spawn below.
+                    try:
+                        from worktree_integrity import (
+                            log_integrity_violation as _log_wt_violation,
+                        )
+                        from worktree_integrity import (
+                            verify_worktree_integrity as _verify_wt_integrity,
+                        )
+
+                        # Only needed to place the audit log inside the primary
+                        # checkout's `.company/` — the integrity check itself
+                        # anchors on the worktree's own HEAD and needs no
+                        # reference to this directory.
+                        try:
+                            from company_resolver import find_company_root as _fcr
+
+                            _primary_root = _fcr() or Path.cwd()
+                        except Exception:
+                            _primary_root = Path.cwd()
+
+                        _wt_integrity = _verify_wt_integrity(Path(_wt_dir))
+                    except Exception as _wt_integrity_err:
+                        logger.error(
+                            f"[3/3 Execute] SECURITY: worktree integrity check "
+                            f"could not run for {target_task_id}, refusing to "
+                            f"start a session: {_wt_integrity_err}"
+                        )
+                        _wt_dir = None
+                        _wt_integrity = None
+
+                    if _wt_dir and not _wt_integrity.ok:
+                        logger.error(
+                            f"[3/3 Execute] SECURITY: worktree integrity check "
+                            f"failed for {target_task_id}: {_wt_integrity.reason} "
+                            f"(diverging: {_wt_integrity.diverging_files})"
+                        )
+                        _log_wt_violation(
+                            _primary_root, target_task_id, Path(_wt_dir), _wt_integrity
+                        )
+                        with _worktree_creation_lock:
+                            subprocess.run(
+                                ["git", "worktree", "remove", "--force", _wt_dir],
+                                capture_output=True,
+                                timeout=15,
+                            )
+                            subprocess.run(
+                                ["git", "branch", "-D", _wt_branch],
+                                capture_output=True,
+                                timeout=15,
+                            )
                         _wt_dir = None
 
                 if _wt_dir:
@@ -12497,16 +12930,15 @@ def start_daemon(config: DaemonConfig) -> int:
     # Check if already running (with stale PID detection)
     state = read_pid_file(config)
     if state is not None:
-        if is_process_alive(state.pid):
+        if is_daemon_state_alive(state):
             print(f"Daemon already running (pid={state.pid})", file=sys.stderr)
             return 2
         else:
-            # Stale PID file — process no longer exists
-            logger.warning(
-                f"Stale PID file detected (PID {state.pid} not running), cleaning up"
-            )
+            # Stale PID file — process gone, or its PID reused after a reboot
+            reason = describe_stale_pid(state)
+            logger.warning(f"Stale PID file detected ({reason}), cleaning up")
             print(
-                f"Stale PID file detected (PID {state.pid} not running), cleaning up",
+                f"Stale PID file detected ({reason}), cleaning up",
                 file=sys.stderr,
             )
             remove_pid_file(config)
@@ -12526,7 +12958,7 @@ def start_daemon(config: DaemonConfig) -> int:
             # Wait for daemon to start
             time.sleep(2)
             state = read_pid_file(config)
-            if state and is_process_alive(state.pid):
+            if state and is_daemon_state_alive(state):
                 print(f"Daemon started via LaunchAgent (pid={state.pid})")
                 return 0
             else:
@@ -12596,7 +13028,9 @@ def start_daemon(config: DaemonConfig) -> int:
     # Record daemon start in metrics (module-level so update_heartbeat() can checkpoint)
     global _g_metrics_tracker, _g_session_id
     _g_metrics_tracker = (
-        _DaemonMetricsTracker() if _DaemonMetricsTracker is not None else None
+        _DaemonMetricsTracker(config.metrics_file)
+        if _DaemonMetricsTracker is not None
+        else None
     )
     _g_session_id = None
     if _g_metrics_tracker is not None:
@@ -12749,13 +13183,12 @@ def stop_daemon(config: DaemonConfig) -> int:
         print("Daemon is not running", file=sys.stderr)
         return 2
 
-    if not is_process_alive(state.pid):
-        # Stale PID file — process no longer exists, clean up
-        logger.warning(
-            f"Stale PID file detected (PID {state.pid} not running), cleaning up"
-        )
+    if not is_daemon_state_alive(state):
+        # Stale PID file — process gone, or its PID reused after a reboot
+        reason = describe_stale_pid(state)
+        logger.warning(f"Stale PID file detected ({reason}), cleaning up")
         print(
-            f"Stale PID file detected (PID {state.pid} not running), cleaning up",
+            f"Stale PID file detected ({reason}), cleaning up",
             file=sys.stderr,
         )
         remove_pid_file(config)

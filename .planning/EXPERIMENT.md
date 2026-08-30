@@ -102,6 +102,83 @@ than reported:
 
 ---
 
+---
+
+# Run 3 — registered 2026-08-30, before the daemon was restarted
+
+Run 2 answered the original question: **yes, the daemon can build software for
+a user** — 20 merged product PRs, a working CLI, 173 tests, in 14 unattended
+days. It also produced a defect list that the product's own tests could not
+see. Run 3 asks the question that answer exposes.
+
+## The question
+
+**Can the loop repair itself against reality?** Building from a goal and
+repairing against an external oracle are different skills. Run 2 showed the
+first. The second is what a user actually depends on, because a tool that
+ships confident false positives is worse than no tool.
+
+Second question, cheaper but load-bearing: **do the four framework fixes this
+run's own findings produced actually work in the field?** Run 2 diagnosed them
+in the mothership; nothing has yet proved them here.
+
+## What changed before the clock starts (intervention #3, logged)
+
+`.claude/hooks/` and `bin/` re-synced from forge-framework, carrying:
+
+- **#450 / #451 / #452** — exact-title dedup for the QUEUE-FILL lane, blocked
+  tasks no longer veto their own re-mint, tractability ceiling on the generator.
+- **#487** — `exact_duplicate_only` for every machine-minted lane, and a
+  held-for-review task no longer re-mints hourly.
+- **#465 / #471 / #481** — stale PID after reboot, stale `.git/index.lock`
+  self-heal, worktrees branch from `origin/main`, git-update failures paged.
+- **#484 / #485 / #486 / #488** — prompt_guard never blocks a machine prompt,
+  judge errors carry the CLI output, the hourly goal refresh stops running the
+  full suite, tests can no longer write real `.company/state`.
+
+`.company/` (queue, goals, history), `forge-config.json` and all product source
+are untouched, exactly as in intervention #2.
+
+## Pass bar
+
+1. **14 consecutive unattended days**, intervention budget 0 (both by-design
+   approvals were spent in Runs 1 and 2).
+2. **G5 ships its three code-fence rules.** Run 2 never minted a single G5
+   task; this is the field test of the dedup fix.
+3. **≥6 of the 9 Tier A defects stop reproducing**, each verified by running
+   its documented command from `.planning/DEFECTS-2026-08-30.md`.
+4. **No regression:** the parity table in that file still holds — the
+   whitespace, structure and table families stay exact against the oracle, exit
+   codes unchanged, `--fix` still idempotent.
+5. **Thin-PR rate below 25 %** (Run 2: 9 of 20 = 45 %).
+
+## Predictions, registered in advance
+
+> **(a) G5 mints within 24 hours of the first autofill cycle.** Its title
+> scores 0.750 against G2, G4 and G6 on the old matcher — above the 0.70
+> threshold — which is why it received zero tasks in fourteen days. The synced
+> framework compares normalized titles exactly for machine lanes. If G5 still
+> does not mint, `exact_duplicate_only` is not reaching this path.
+>
+> **(b) Thin PRs continue.** The dedup fix is not the whole cause: throughout
+> Run 2 `goal_scheduler.log` recorded `goal_priorities` G2–G9 = 0.0 on every
+> scan, because the goal assessor never credits a completed goal in a product
+> repo. That defect is NOT fixed in the synced framework. Predicting the
+> failure in advance so the next fix is aimed at the assessor, not at dedup.
+>
+> **(c) At least one defect fix will pass its own tests and still fail the
+> oracle.** Better briefs do not cure self-consistent wrongness: the worker
+> that writes the fix will write the test. If this prediction fails — if every
+> fix survives the oracle — then a sufficiently concrete brief IS the cure, and
+> that is the more valuable result.
+
+## What Run 3 adds to the instrument
+
+Run 2's aggregate mint rate looked healthy (78 tasks) while one goal of nine
+was starved. **Run 3 measures tasks-per-goal, not tasks.** A distribution that
+sums correctly can still be broken, and only the per-goal count shows it.
+
+
 ## After the run
 
 1. Publish both numbers separately — self-maintenance and product-build.

@@ -657,7 +657,13 @@ def compute_goal_priorities(
     if assessments is None:
         # Get company directory
         company_dir = company_resolver.get_company_dir()
-        assessments = goal_tracker.assess_all_goals(company_dir)
+        # lightweight=True: G1 reads the nightly's trusted coverage.json instead
+        # of running pytest --cov here. Without it this hourly refresh ran the
+        # FULL suite in the primary checkout every hour, was SIGKILLed at 600 s
+        # every time, and was the dominant writer of fixture records into the
+        # real .company/state (found 2026-08-29). The daemon's other planning
+        # paths already pass lightweight=True.
+        assessments = goal_tracker.assess_all_goals(company_dir, lightweight=True)
 
     strategic_weights = config.get("strategicWeights", DEFAULT_STRATEGIC_WEIGHTS)
     priorities: dict[str, GoalPriority] = {}

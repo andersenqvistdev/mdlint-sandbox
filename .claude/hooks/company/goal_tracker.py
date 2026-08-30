@@ -195,6 +195,63 @@ class GoalAssessor(Protocol):
 G1_COVERAGE_MAX_AGE_SECONDS = 24 * 3600
 G1_SCOPE_MIN_SOURCE_FILES = 10
 G1_SCOPE_MIN_MEASURED_FRACTION = 0.3
+
+# Largest per-file gap still worth proposing as one task.
+#
+# Ranking coverage candidates by percentage puts the LEAST tractable file
+# first: the worst-covered file in this repo is forge_daemon.py at 66% with
+# 1,869 uncovered lines, which the backlog generator attempted five times
+# before hitting its build ceiling ("Build ceiling: 5 builds >= 5, human
+# review required"). Four consecutive QUEUE-FILL PRs were then spent on that
+# same file, and four of them closed unmerged on irreconcilable conflicts.
+#
+# A worker closes a 30-line gap in one pass; it does not close a 1,869-line
+# one, and every attempt costs a worktree, a PR and its tokens. Measured
+# 2026-08-23 across 66 candidates below 90%: median gap 48 lines, and 64 of
+# them sit at or under this ceiling — so it excludes the two monsters
+# (448 and 1,869) and nothing else. Files above it need a planned
+# decomposition, not another autonomous attempt.
+#
+# Fallback only. The live value is backlog_generator's, sourced at call time by
+# _coverage_max_missing() so the two coverage lanes cannot drift apart on what
+# counts as closeable work.
+COVERAGE_TRACTABLE_MAX_MISSING = 400
+
+
+def _coverage_max_missing() -> int:
+    """Largest gap worth minting, sourced from backlog_generator when available."""
+    try:
+        from . import backlog_generator as bg
+    except ImportError:
+        try:
+            import backlog_generator as bg  # type: ignore[no-redef]
+        except ImportError:
+            return COVERAGE_TRACTABLE_MAX_MISSING
+    value = getattr(bg, "COVERAGE_MAX_MISSING_LINES", COVERAGE_TRACTABLE_MAX_MISSING)
+    return int(value) if isinstance(value, int) else COVERAGE_TRACTABLE_MAX_MISSING
+
+
+# Smallest gap worth spawning a worktree, a worker and a PR for. Mirrors
+# backlog_generator.COVERAGE_MIN_MISSING_LINES (sourced at call time) so both
+# mint paths agree on what counts as work: without a floor the ranking below
+# happily proposes a one-line gap, which costs a full task to move coverage by
+# a rounding error.
+_COVERAGE_MIN_MISSING_FALLBACK = 25
+
+
+def _coverage_min_missing() -> int:
+    """Minimum gap worth minting, sourced from backlog_generator when available."""
+    try:
+        from . import backlog_generator as bg
+    except ImportError:
+        try:
+            import backlog_generator as bg  # type: ignore[no-redef]
+        except ImportError:
+            return _COVERAGE_MIN_MISSING_FALLBACK
+    value = getattr(bg, "COVERAGE_MIN_MISSING_LINES", _COVERAGE_MIN_MISSING_FALLBACK)
+    return int(value) if isinstance(value, int) else _COVERAGE_MIN_MISSING_FALLBACK
+
+
 _SOURCE_SKIP_DIRS = {".venv", ".git", "node_modules", "__pycache__", ".worktrees"}
 
 
@@ -291,6 +348,109 @@ def _expected_measured_count(project_root: Path) -> int:
     return _count_source_py(project_root)
 
 
+def _coverage_staleness_helpers():
+    """Per-file staleness helpers from backlog_generator, or None.
+
+    Imported lazily so goal_tracker keeps no import-time dependency on the
+    generator. When they cannot be imported the caller keeps the strict global
+    refusal rather than trusting a measurement it has no way to scope.
+    """
+    try:
+        from . import backlog_generator as bg
+    except ImportError:
+        try:
+            import backlog_generator as bg  # type: ignore[no-redef]
+        except ImportError:
+            return None
+    try:
+        return bg._python_paths_changed_since, bg._coverage_entry_is_stale
+    except AttributeError:
+        return None
+
+
+def _coverage_excluding_stale_entries(
+    cov_data: dict, measured_at: float, project_root: Path
+) -> tuple[float, dict] | None:
+    """Recompute coverage over the entries a later commit did not invalidate.
+
+    Staleness is a PER-FILE property (#383): a commit touching one module says
+    nothing about the coverage of the other 184. The global rule this softens
+    discarded every measurement on the day's first Python merge, which left G1
+    reading 0% against a real 87% for most of every day -- and a goal at 0%
+    with an INFRA-ONLY action cannot originate any work.
+
+    Returns (percent, trusted_files), or None when the surviving set cannot be
+    trusted at all, in which case the caller keeps the strict refusal:
+      - no per-file data to narrow with;
+      - the changed-set came back empty even though the global timestamp says
+        something changed, i.e. the query failed and staleness is
+        indeterminate (NOT "nothing is stale");
+      - an entry is missing the statement counts needed to recompute.
+    """
+    files = cov_data.get("files")
+    if not isinstance(files, dict) or not files:
+        return None
+
+    helpers = _coverage_staleness_helpers()
+    if helpers is None:
+        return None
+    changed_since, entry_is_stale = helpers
+
+    changed = changed_since(measured_at, project_root)
+    if not changed:
+        return None
+
+    trusted = {
+        path: entry
+        for path, entry in files.items()
+        if isinstance(entry, dict) and not entry_is_stale(path, changed)
+    }
+    if not trusted:
+        return None
+
+    statements = 0
+    covered = 0
+    for entry in trusted.values():
+        summary = entry.get("summary")
+        if not isinstance(summary, dict):
+            return None
+        num = summary.get("num_statements")
+        hit = summary.get("covered_lines")
+        if not isinstance(num, int) or not isinstance(hit, int):
+            return None
+        statements += num
+        covered += hit
+
+    if statements <= 0:
+        return None
+
+    recomputed = (covered / statements) * 100.0
+
+    # Exclusion must never RAISE the reported figure.
+    #
+    # The excluded set is not a random sample: workers are pointed at the
+    # least-covered files, so the entries a commit invalidates are
+    # systematically below average, and dropping them inflates the remainder.
+    # Measured 2026-08-23, hours after this narrowing shipped: 4 excluded files
+    # averaged 77.2% against a trusted-set mean of 91.9%, lifting the reported
+    # figure from 87.10% to 90.82% -- across the 90% target, minting a COMPLETE
+    # for a goal that had not been met. Worse, it compounds: every successful
+    # day of coverage work excludes more low-covered files.
+    #
+    # Taking the lower of the two keeps the narrowing's real benefit (a usable
+    # number instead of a blanket refusal) while making exclusion strictly
+    # conservative -- it can lower confidence, never manufacture it. The W1-P2
+    # rule stands: never report a number you did not measure.
+    reported = cov_data.get("totals", {})
+    reported_percent = (
+        reported.get("percent_covered") if isinstance(reported, dict) else None
+    )
+    if isinstance(reported_percent, (int, float)):
+        recomputed = min(recomputed, float(reported_percent))
+
+    return recomputed, trusted
+
+
 def _read_trusted_coverage(
     coverage_file: Path, project_root: Path
 ) -> tuple[float | None, str]:
@@ -315,18 +475,31 @@ def _read_trusted_coverage(
         # Freshness: a measurement older than the last change to Python
         # code describes code that no longer exists (docs/queue commits do
         # not invalidate it). Outside git, fall back to a wall-clock cap.
+        #
+        # A newer Python commit does not invalidate the files it never
+        # touched, so narrow to the entries that are still trustworthy and
+        # recompute over those (#383). Only when nothing survives -- or the
+        # surviving set cannot be established -- does the whole measurement
+        # fall, which is the strict behaviour this replaces.
+        files = cov_data.get("files") or {}
         commit_ts = _last_commit_timestamp(project_root, pathspec="*.py")
         if commit_ts is not None:
             if mtime < commit_ts:
-                return None, "coverage.json predates the last Python change (stale)"
+                narrowed = _coverage_excluding_stale_entries(
+                    cov_data, mtime, project_root
+                )
+                if narrowed is None:
+                    return None, "coverage.json predates the last Python change (stale)"
+                percent, files = narrowed
         elif (time.time() - mtime) > G1_COVERAGE_MAX_AGE_SECONDS:
             return None, "coverage.json older than 24h with no git history (stale)"
 
         # Scope: a run that measured only a slice of the configured source
         # says nothing about total coverage (a single-module cov run can
         # honestly read 100%). Compare against what the coverage config
-        # itself would measure, not a naive repo-wide file count.
-        files = cov_data.get("files") or {}
+        # itself would measure, not a naive repo-wide file count. Applied to
+        # the NARROWED set, so a commit that invalidates most of the scan
+        # still fails the trust check rather than reporting a thin slice.
         measured = len(files) if isinstance(files, dict) else 0
         expected = _expected_measured_count(project_root)
         if expected >= G1_SCOPE_MIN_SOURCE_FILES and measured < (
@@ -493,8 +666,14 @@ def assess_test_coverage(
         test_files = [f for f in test_files if f.name.startswith("test_")]
         estimated_percent = min(len(test_files) * 3.0, 100.0)
 
-    # Target is 50% coverage
-    target_value = 0.5
+    # Single source of truth for G1's bar. This was a hardcoded 0.5 and drifted
+    # silently: parse_goals_from_vision does not carry target_value (every
+    # parsed goal defaults to 1.0), so the assessor could not read it off the
+    # goal, and the literal here outlived the retarget in DEFAULT_GOALS. The
+    # effect of that drift is a goal that reports COMPLETE against a bar nobody
+    # believes in any more -- 86.62% "meets target 50%". Read the canonical
+    # definition instead, so a retarget takes effect in one edit.
+    target_value = _DEFAULT_GOALS_BY_ID["G1"].target_value
     if measured_value is None:
         current_value = 0.0
         progress_percent = 0
@@ -545,15 +724,25 @@ def assess_test_coverage(
         # Generate concrete task: name specific uncovered modules instead of
         # bare goal metric. This prevents phantom "improve coverage to 50%" tasks
         # where the diff adds tests for module X but the title claims a coverage target.
-        uncovered = _find_uncovered_modules(company_dir.parent, measured_value, limit=2)
+        uncovered = _find_uncovered_modules(
+            company_dir.parent,
+            measured_value,
+            limit=2,
+            target_fraction=target_value,
+        )
+        target_display = f"{target_value * 100:.0f}%"
         if uncovered:
             modules_str = ", ".join(uncovered)
             next_actions = [
-                f"Add tests for modules ({modules_str}) to improve coverage"
+                f"Add tests for {modules_str} to raise coverage toward {target_display}"
             ]
         else:
+            # No per-file candidates: say so plainly instead of naming a
+            # target the goal no longer has (this read "50%" long after G1
+            # was retargeted to 90%).
             next_actions = [
-                "Add tests for least-covered modules to reach 50% coverage target"
+                "Add tests for the least-covered modules to reach the "
+                f"{target_display} coverage target"
             ]
 
     return GoalAssessment(
@@ -963,42 +1152,89 @@ def assess_autonomy(goal: GoalDefinition, company_dir: Path) -> GoalAssessment:
     )
 
 
+def _economics_recorded(company_dir: Path) -> tuple[int, int, int]:
+    """Return (consumed tokens, billable tokens, task executions) from the store.
+
+    All three come from the data the trackers actually write. Keying the goal on
+    file existence instead reported COMPLETE for a token meter that had never
+    recorded a single token.
+
+    The two token figures are kept separate on purpose. ``token_usage`` holds
+    full consumption; ``cost_tracking`` holds the cache-discounted billable
+    equivalent of the *same* activity. Summing them produces a number that
+    corresponds to nothing -- which is the exact failure this assessor exists
+    to prevent, so the reported figure is consumption alone.
+    """
+    data_path = company_dir / "state/efficiency_data.json"
+    if not data_path.exists():
+        return 0, 0, 0
+
+    try:
+        with open(data_path) as f:
+            data = json.load(f)
+    except (OSError, ValueError):
+        return 0, 0, 0
+
+    def _total_tokens(section: str) -> int:
+        totals = data.get(section, {})
+        totals = totals.get("totals", {}) if isinstance(totals, dict) else {}
+        value = totals.get("total_tokens", 0)
+        return value if isinstance(value, int) else 0
+
+    executions = data.get("task_executions", [])
+    return (
+        _total_tokens("token_usage"),
+        _total_tokens("cost_tracking"),
+        len(executions) if isinstance(executions, list) else 0,
+    )
+
+
+ECONOMICS_NEXT_ACTIONS = {
+    "token_tracking": (
+        "Capture token counts from the agent provider and feed "
+        "efficiency_tracker.record_task_cost() — nothing records tokens today"
+    ),
+    "efficiency": "Record task executions via record_task_efficiency()",
+}
+
+
 def assess_economics(goal: GoalDefinition, company_dir: Path) -> GoalAssessment:
     """Assess G6: Economics goal (token consumption tracking).
 
-    Simplified scope: economics is complete when token/efficiency tracking
-    exists. No longer requires separate budget and cost_tracking features.
+    Scope: economics is complete when token and efficiency tracking are
+    actually *recording*, not merely installed. The previous check keyed
+    ``token_tracking`` on whether ``efficiency_tracker.py`` existed on disk,
+    which is always true in a Forge checkout, so G6 reported COMPLETE while
+    its token totals sat at zero.
     """
-    # Check for token/efficiency tracking infrastructure
-    has_efficiency_tracker = (
-        company_dir.parent / ".claude" / "hooks" / "company" / "efficiency_tracker.py"
-    ).exists()
-    has_efficiency_data = (company_dir / "state/efficiency_data.json").exists()
-
-    org_file = company_dir / "org.json"
-    has_economics_section = False
-    if org_file.exists():
-        try:
-            with open(org_file) as f:
-                org = json.load(f)
-            has_economics_section = "economics" in org
-        except Exception:
-            pass
+    consumed_tokens, billable_tokens, recorded_executions = _economics_recorded(
+        company_dir
+    )
 
     features = {
-        "token_tracking": has_efficiency_tracker,
-        "efficiency": has_economics_section or has_efficiency_data,
+        # Either store carrying data proves the meter is running; the reported
+        # figure is consumption, never the two added together.
+        "token_tracking": consumed_tokens > 0 or billable_tokens > 0,
+        "efficiency": recorded_executions > 0,
     }
+    recorded_tokens = consumed_tokens or billable_tokens
 
     current_value = sum(features.values()) / len(features)
     progress_percent = int(current_value * 100)
 
     if current_value >= 1.0:
         status = GoalStatus.COMPLETE
-        status_reason = "Token consumption tracking via efficiency_tracker"
+        status_reason = (
+            f"Token tracking recording: {recorded_tokens:,} tokens consumed over "
+            f"{recorded_executions} task executions"
+        )
     elif current_value >= 0.5:
         status = GoalStatus.ON_TRACK
-        status_reason = f"Economics {progress_percent}% complete"
+        status_reason = (
+            f"Economics {progress_percent}% complete — "
+            f"{recorded_executions} task executions recorded, "
+            f"{recorded_tokens:,} tokens recorded"
+        )
     else:
         status = GoalStatus.AT_RISK
         status_reason = "Economics needs token tracking setup"
@@ -1016,8 +1252,14 @@ def assess_economics(goal: GoalDefinition, company_dir: Path) -> GoalAssessment:
         progress_percent=progress_percent,
         status=status,
         status_reason=status_reason,
-        next_actions=[f"Set up {m}" for m in missing],
-        raw_data={"features": features},
+        next_actions=[ECONOMICS_NEXT_ACTIONS.get(m, f"Set up {m}") for m in missing],
+        raw_data={
+            "features": features,
+            "recorded_tokens": recorded_tokens,
+            "consumed_tokens": consumed_tokens,
+            "billable_tokens": billable_tokens,
+            "recorded_executions": recorded_executions,
+        },
     )
 
 
@@ -1125,20 +1367,41 @@ def _recent_failure_examples(
 
 
 def _find_uncovered_modules(
-    project_root: Path, coverage_percent: float | None = None, limit: int = 3
+    project_root: Path,
+    coverage_percent: float | None = None,
+    limit: int = 3,
+    *,
+    target_fraction: float = 1.0,
 ) -> list[str]:
-    """Find Python modules with lowest or zero test coverage for G3.
+    """Coverage gaps still short of target, most closeable first.
 
-    Returns concrete module names that could be targeted for test improvements.
-    If coverage.json exists, reads it to identify uncovered files; otherwise
-    returns empty list so the assessor falls back to generic next_actions.
+    Each entry is a repo-relative path plus its measured numbers, e.g.
+    ``.claude/hooks/company/forge_daemon.py (66% covered, 1870 lines
+    uncovered)``. Both halves matter: strategic_planner's brief-quality gate
+    demands a pointer to a file that exists AND a measured value, so a bare
+    module stem produces a brief that is refused and never becomes work.
+
+    Ordering is by absolute gap ascending, NOT by percentage: the worst-covered
+    file is usually the least tractable one, and proposing it repeatedly buys
+    nothing but conflicts (see COVERAGE_TRACTABLE_MAX_MISSING).
+
+    Two earlier rules made this return nothing in every realistic case:
+      - an early ``coverage_percent >= 0.5`` bail. The argument is a FRACTION,
+        so any repo above 50% coverage got no candidates at all.
+      - selecting only files at exactly 0%. Once the coverage lane has run for
+        a while there are none left (measured 2026-08-22: 0 of 185 files at
+        zero, while forge_daemon.py sat at 66.5% with 1,870 uncovered lines).
+
+    Returns [] when there is no trustworthy per-file data, so the assessor
+    falls back to generic next_actions rather than inventing a target.
     """
-    if coverage_percent is None or coverage_percent >= 0.5:
-        return []
-
     coverage_file = project_root / "coverage.json"
     if not coverage_file.exists():
         return []
+
+    target_percent = max(0.0, min(target_fraction, 1.0)) * 100
+    min_missing = _coverage_min_missing()
+    max_missing = _coverage_max_missing()
 
     try:
         with open(coverage_file) as f:
@@ -1147,17 +1410,36 @@ def _find_uncovered_modules(
         if not isinstance(files, dict):
             return []
 
-        # Extract files with 0% coverage
-        uncovered = []
+        candidates: list[tuple[float, int, str]] = []
         for file_path, file_data in files.items():
             if not isinstance(file_data, dict):
                 continue
             summary = file_data.get("summary") or {}
-            pct_covered = summary.get("percent_covered", 100)
-            if pct_covered == 0:
-                uncovered.append(Path(file_path).stem)
+            percent = summary.get("percent_covered")
+            missing = summary.get("missing_lines")
+            statements = summary.get("num_statements")
+            if not isinstance(percent, (int, float)) or not isinstance(missing, int):
+                continue
+            if not isinstance(statements, int) or statements <= 0:
+                continue
+            if percent >= target_percent:
+                continue
+            # A gap only becomes work if one PR can close it, and only earns a
+            # worker if closing it is worth the trip.
+            if missing > max_missing or missing < min_missing:
+                continue
+            # Only name a file the worker can actually open.
+            if not (project_root / file_path).exists():
+                continue
+            candidates.append((float(percent), missing, file_path))
 
-        return uncovered[:limit]
+        # Most closeable first; among equals, the worse-covered file.
+        candidates.sort(key=lambda c: (c[1], c[0]))
+        return [
+            f"{path} ({percent:.0f}% covered, {missing} "
+            f"{'line' if missing == 1 else 'lines'} uncovered)"
+            for percent, missing, path in candidates[:limit]
+        ]
     except Exception:
         return []
 
@@ -1424,9 +1706,20 @@ def assess_sustained_autonomy(
         status_reason = "No daemon heartbeat data found"
     elif uptime_days >= 7 and success_rate >= 0.9 and sample_ok:
         status = GoalStatus.COMPLETE
+        # The sample size belongs in the VERDICT, not just the progress line.
+        # Every other branch here is self-describing -- ON_TRACK reports
+        # "(N tasks)" -- but this one dropped the denominator at exactly the
+        # moment it decides something. Seven days over 5 tasks and seven days
+        # over 200 emitted an identical "Sustained autonomy achieved", so the
+        # claim could not be read without going and counting PRs by hand.
+        # Uptime accrues whether or not any work happens, so without the
+        # denominator an idle week is indistinguishable from a productive one.
+        # Same fix as queue_monitor._last_failure_note: one field, and the
+        # figure describes its own basis.
         status_reason = (
             f"Sustained autonomy achieved: {uptime_days:.1f} days uptime, "
-            f"{success_rate * 100:.0f}% recent success rate"
+            f"{success_rate * 100:.0f}% recent success rate "
+            f"over {sample_size:.0f} tasks"
         )
     elif uptime_days >= 3 and success_rate >= 0.8:
         status = GoalStatus.ON_TRACK
@@ -2635,10 +2928,18 @@ DEFAULT_GOALS: list[GoalDefinition] = [
     GoalDefinition(
         "G1",
         "Quality",
-        "Increase test coverage to 50%",
-        "Coverage badge shows 50%+",
+        # Retargeted 2026-08-20: the 50% bar was set against a ~15% baseline and
+        # was passed long ago — measured 86.62% (coverage.json totals, 63,894
+        # statements). A satisfied goal still driving the only origination lane
+        # is why backlog_generator had 2 candidates left out of 185 files.
+        # NOTE: name + success_metric are a FINGERPRINT. _is_forge_own_goal()
+        # routes G1 to assess_test_coverage only on an exact match against
+        # .company/vision.md's row, so these two strings and that row must move
+        # together or G1 silently falls back to the generic assessor.
+        "Increase test coverage to 90%",
+        "Coverage badge shows 90%+",
         "forge-cto",
-        0.5,
+        0.9,
     ),
     GoalDefinition(
         "G2",

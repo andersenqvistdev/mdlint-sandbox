@@ -1444,15 +1444,123 @@ def calculate_token_similarity(title1: str, title2: str) -> float:
     return max(jaccard, containment)
 
 
+def normalize_title(title: str) -> str:
+    """Casefolded, whitespace-collapsed title for exact comparison."""
+    return " ".join(str(title or "").split()).casefold()
+
+
+# operation_loop.release_task writes result == "blocked" ONLY for a deliverable
+# gate hold, together with the held PR and this blocked_reason prefix.
+# Retry-exhausted entries carry result "failed", build-ceiling zombies
+# "pr_open" — those are NOT in flight and must keep re-minting (#451).
+_HELD_REASON_PREFIX = "Deliverable gate:"
+
+
+def is_held_for_review(task: dict) -> bool:
+    """A task whose PR the deliverable gate held for a human — in flight, not failed."""
+    if not isinstance(task, dict):
+        return False
+    return (
+        task.get("result") == "blocked"
+        and bool(task.get("pr_url"))
+        and str(task.get("blocked_reason") or "").startswith(_HELD_REASON_PREFIX)
+    )
+
+
+_PR_STATE_CACHE: dict[str, tuple[float, str]] = {}
+_PR_STATE_CACHE_TTL_SECONDS = 600.0
+
+
+def pr_state(pr_url: str, *, lookup=None) -> str | None:
+    """'OPEN' | 'MERGED' | 'CLOSED' for a PR URL, None when it cannot be told.
+
+    One gh call per PR per ten minutes; only an exact-title collision with a
+    held task reaches it, so this is rare. ``lookup`` injects the resolver.
+    """
+    now = time.time()
+    cached = _PR_STATE_CACHE.get(pr_url)
+    if cached and now - cached[0] < _PR_STATE_CACHE_TTL_SECONDS:
+        return cached[1]
+    state: str | None = None
+    try:
+        if lookup is not None:
+            state = lookup(pr_url)
+        else:
+            number = str(pr_url).rstrip("/").rsplit("/", 1)[-1]
+            if number.isdigit():
+                res = subprocess.run(
+                    ["gh", "pr", "view", number, "--json", "state", "--jq", ".state"],
+                    capture_output=True,
+                    text=True,
+                    timeout=20,
+                )
+                if res.returncode == 0:
+                    state = res.stdout.strip().upper() or None
+    except (OSError, subprocess.SubprocessError, ValueError, TypeError):
+        state = None
+    if state is not None:
+        _PR_STATE_CACHE[pr_url] = (now, state)
+    return state
+
+
+def find_held_twin(queue: dict, title: str, *, pr_state_lookup=None) -> dict | None:
+    """The blocked task holding an OPEN PR for exactly this title, if any.
+
+    Why this exists (2026-08-28): a judge ERROR held a PR, the task went to
+    blocked, and — blocked being invisible to dedup since #451 — the coverage
+    lane minted and built the same file every hour: four PRs for one task.
+
+    Why it is this narrow: #451 removed blocked from dedup because a blocked
+    task usually means retries exhausted, and a permanent veto killed a goal
+    for 60 hours. So only a gate hold counts, only on an EXACT title, and only
+    while its PR is still open — an operator closing the PR ends the veto
+    (they declined the work; the signal may mint again) and a merge ends it
+    too (queue heal completes the task). An unknown PR state counts as open:
+    two PRs for one task cost more than one cycle of waiting. Held tasks stay
+    in ``blocked`` on purpose — parking them in pr_open would re-arm the
+    closed-unmerged head-of-queue rebuild that produced #440/#441/#443.
+    """
+    wanted = normalize_title(title)
+    if not wanted:
+        return None
+    for task in queue.get("blocked") or []:
+        if not is_held_for_review(task):
+            continue
+        if normalize_title(task.get("title", "")) != wanted:
+            continue
+        state = pr_state(task["pr_url"], lookup=pr_state_lookup)
+        if state in ("MERGED", "CLOSED"):
+            continue
+        return {
+            "task_id": task.get("task_id"),
+            "title": task.get("title"),
+            "status": "blocked",
+            "pr_url": task.get("pr_url"),
+            "similarity": 1.0,
+            "match_type": "held_for_review",
+        }
+    return None
+
+
 def find_duplicate_task(
     queue: dict,
     title: str,
     check_completed: bool = True,
     max_completed_age_hours: float = RECENT_COMPLETION_HOURS,
     use_semantic_check: bool = True,
+    exact_only: bool = False,
 ) -> dict | None:
     """
     Find a duplicate task using fuzzy matching with optional semantic checking.
+
+    ``exact_only`` compares normalized titles for equality instead of token
+    similarity — for machine-minted lanes whose templated titles share most
+    of their tokens (two coverage titles with the same missing-line count
+    score 0.857 against each other; #450 measured 0.80 for QUEUE-FILL
+    siblings). Human-authored titles keep the fuzzy match.
+
+    A task held for human review by the deliverable gate (blocked, with an
+    open PR) counts as a duplicate in every mode — see find_held_twin.
 
     Duplicate Detection Logic:
     1. Token similarity >= 0.70: Block as duplicate (fast path)
@@ -1477,6 +1585,10 @@ def find_duplicate_task(
     now = datetime.now(timezone.utc)
     config = load_duplicate_detection_config() if use_semantic_check else None
 
+    held = find_held_twin(queue, title)
+    if held:
+        return held
+
     def _check_similarity(
         existing_title: str, existing_task: dict, status_key: str
     ) -> dict | None:
@@ -1487,6 +1599,16 @@ def find_duplicate_task(
             if isinstance(existing_title, str)
             else existing_title.get("title", "")
         )
+        if exact_only:
+            if normalize_title(existing_title_str) != normalize_title(title):
+                return None
+            return {
+                "task_id": existing_task.get("task_id"),
+                "title": existing_title_str,
+                "status": status_key,
+                "similarity": 1.0,
+                "match_type": "exact",
+            }
         token_sim = calculate_token_similarity(title, existing_title_str)
 
         # Fast path: High token similarity = definite duplicate
@@ -1524,8 +1646,22 @@ def find_duplicate_task(
 
         return None
 
-    # Check active queues (always) — pr_open included to prevent re-minting while PRs exist
-    for status_key in ["pending", "blocked", "in_progress", "pr_open"]:
+    # Check active queues (always) — pr_open included to prevent re-minting while PRs exist.
+    #
+    # "blocked" is deliberately NOT here. A blocked task is work that did NOT
+    # get done: it exhausted its retries, hit a build ceiling, or is waiting on
+    # a human. Treating it as a duplicate vetoes the re-mint that is precisely
+    # the right response, and blocked tasks have no completion time, so
+    # max_completed_age_hours cannot age them out — the veto is permanent.
+    #
+    # Measured 2026-08-23 -> 26: one blocked task ("[QUEUE-FILL] G1: Add tests
+    # for .claude/hooks/company/forge_daemon.py ...") fuzzy-matched every other
+    # G1 coverage title at 0.80, above the 0.70 threshold, because these titles
+    # share a long template prefix. It silently rejected every G1 mint for 60
+    # hours: zero tasks, zero PRs, "0 pending", no log line. Blocked zombies
+    # are a known long-lived class in this queue, so any one of them could do
+    # this to its whole goal.
+    for status_key in ["pending", "in_progress", "pr_open"]:
         for existing_task in queue.get(status_key, []):
             existing_title = existing_task.get("title", "")
             result = _check_similarity(existing_title, existing_task, status_key)
@@ -2469,6 +2605,7 @@ def add_task(
     team_preference: str = "mixed",
     created_by: str | None = None,
     requires_deliverable: bool | None = None,
+    exact_duplicate_only: bool = False,
 ) -> dict:
     """
     Add a new task to the queue.
@@ -2583,13 +2720,21 @@ def add_task(
             title=title,
             check_completed=True,
             max_completed_age_hours=RECENT_COMPLETION_HOURS,
+            exact_only=exact_duplicate_only,
         )
 
         if duplicate:
             match_type = duplicate.get("match_type", "exact")
             similarity = duplicate.get("similarity", 1.0)
 
-            if match_type == "recent_completion":
+            if match_type == "held_for_review":
+                message = (
+                    f"Task '{duplicate['title']}' already has PR "
+                    f"{duplicate.get('pr_url')} held for human review "
+                    f"(task {duplicate.get('task_id')}) — review or close that "
+                    "PR instead of minting it again"
+                )
+            elif match_type == "recent_completion":
                 hours_ago = duplicate.get("completed_ago_hours", 0)
                 message = (
                     f"Similar task '{duplicate['title']}' was completed {hours_ago}h ago "
@@ -2619,6 +2764,7 @@ def add_task(
                 "existing_status": duplicate.get("status"),
                 "similarity": similarity,
                 "match_type": match_type,
+                "pr_url": duplicate.get("pr_url"),
             }
 
         # WS-018-001: Check if feature was already shipped via merged PR
@@ -3444,6 +3590,14 @@ def update_task(
             found_task["notes"].append({"timestamp": now, "content": notes})
 
         # Handle status change
+        if status:
+            # Keep the task's own status field in sync with the bucket it lives
+            # in. Setting this only inside the move branch below leaves a stale
+            # value behind whenever the bucket already matches, so an explicit
+            # status argument always rewrites the field — that also makes a
+            # repeat call repair a task whose field drifted from its bucket.
+            found_task["status"] = status
+
         if status and status != found_status:
             # Remove from current status list
             queue[found_status] = [

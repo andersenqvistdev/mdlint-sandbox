@@ -58,11 +58,41 @@ class FailureOrigin(Enum):
     TASK = "task"
 
 
-# ONLY the timeout case for provider preflight — a persistent "not logged
-# in"/"CLI not installed" preflight failure is a real, human-actionable error
-# and must keep consuming retry budget (it will never resolve itself).
+# Provider preflight: the TIMEOUT case, plus the LOGGED-OUT case.
+#
+# This list originally carried only the timeout, on the reasoning that a "not
+# logged in" preflight is human-actionable and "will never resolve itself", so
+# it should keep consuming retry budget. The second half of that premise is
+# false, and it cost real work on 2026-08-15: a transient logout failed three
+# freshly-generated coverage tasks three times each, and by the time auth was
+# healthy again (it recovered on its own, untouched) all three were escalated
+# or ceiling-blocked behind "human review required". ~2,635 lines of measured,
+# admitted, queued work destroyed by a blip that lasted hours.
+#
+# The deeper error was aiming the wrong instrument at it. Retry budget exists
+# to decide whether a TASK is viable; an environment fault says nothing about
+# the task, so spending task budget on it can only ever destroy good work.
+# The right response to a provider outage — transient OR persistent — is to
+# leave the tasks alone and tell a human, which is precisely what the
+# cross-task streak tracker below already does (escalates + notifies once
+# DEFAULT_OUTAGE_THRESHOLD distinct tasks hit the same infra fault).
+#
+# So the human-actionable half of the original reasoning is preserved, and
+# routed through the mechanism built for it, instead of being paid for out of
+# the retry budget of whichever tasks happened to be running at the time.
+#
+# Deliberately NOT widened to every preflight failure: "CLI not installed" and
+# similar are left classified as TASK for now, because that path has not been
+# observed here and the same argument for it deserves its own evidence.
 _INFRA_PATTERNS = [
     r"provider preflight failed[\s\S]*?(?:timed?\s*out|timeout)",
+    # Logged-out / unauthenticated preflight. Matches the JSON health-check
+    # body employee_activator wraps ({"loggedIn": false, "authMethod": "none"})
+    # as well as prose phrasings, so a health-check format change degrades to
+    # the old behaviour rather than silently matching something unintended.
+    r"provider preflight failed[\s\S]*?[\"']?loggedIn[\"']?\s*:\s*false",
+    r"provider preflight failed[\s\S]*?[\"']?authMethod[\"']?\s*:\s*[\"']none[\"']",
+    r"provider preflight failed[\s\S]*?not\s+logged\s+in",
     # Any provider CLI (claude/gh/codex) health-check timing out before a
     # worker subprocess ever spawned.
     r"\b(?:claude|gh|codex)\b[\s\S]{0,80}?(?:timed?\s*out|timeout)",

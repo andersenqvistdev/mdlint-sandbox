@@ -54,6 +54,7 @@ import hashlib
 import json
 import os
 import stat
+import subprocess
 import sys
 import time
 import warnings
@@ -190,7 +191,37 @@ def _get_main_project_from_worktree(start_path: Path) -> Path | None:
         return None
 
 
+# The framework checkout's own .company — the production state of the repo that
+# ships this module. Under a hermetic test run (tests/conftest.py sets
+# FORGE_HERMETIC_COMPANY_DIR) any resolution that lands here is redirected.
+# The conftest guard used to do this by patching this module's attribute, and
+# was defeated whenever a test file re-imported company_resolver under a second
+# module object (sys.modules.pop at collection time) — writers bound to the
+# first object kept hitting production. Doing it inside the function makes
+# module identity irrelevant.
+_FRAMEWORK_COMPANY_DIR = (
+    Path(__file__).resolve().parent.parent.parent.parent / ".company"
+)
+
+
 def get_company_dir(start_path: Path | str | None = None) -> Path:
+    """Resolve the .company directory (see _resolve_company_dir), redirecting the
+    framework checkout's own .company to FORGE_HERMETIC_COMPANY_DIR when a
+    hermetic test run sets it."""
+    result = _resolve_company_dir(start_path)
+    hermetic = os.environ.get("FORGE_HERMETIC_COMPANY_DIR")
+    if hermetic:
+        try:
+            if Path(result).resolve() == _FRAMEWORK_COMPANY_DIR.resolve():
+                redirected = Path(hermetic)
+                (redirected / "state").mkdir(parents=True, exist_ok=True)
+                return redirected
+        except OSError:
+            pass
+    return result
+
+
+def _resolve_company_dir(start_path: Path | str | None = None) -> Path:
     """
     Get the .company directory path.
 
@@ -339,6 +370,80 @@ def get_worktree_base(project_root: Path | str | None = None) -> Path:
         # .claude/hooks/company/company_resolver.py -> project root
         project_root = Path(__file__).resolve().parents[3]
     return WORKTREE_ROOT / get_project_id(project_root)
+
+
+def preferred_base_ref(project_root: Path | str | None = None) -> str:
+    """Ref a new task worktree should branch from.
+
+    ``origin/main`` when that remote-tracking ref exists, else ``main``.
+
+    The daemon fetches origin every cycle but can only fast-forward its own
+    checkout when nothing blocks the pull. When something does — 2026-08-20 →
+    08-28 in mdlint-sandbox a stale ``.git/index.lock`` made every pull fail
+    for eight days while every fetch succeeded — local ``main`` silently goes
+    stale, and every worktree branched from it opens a PR that conflicts on
+    arrival and is auto-closed. ``origin/main`` is as fresh as the last fetch
+    no matter what state the primary checkout is in, and it is what the PR
+    will be measured against anyway.
+    """
+    cwd = str(project_root) if project_root is not None else None
+    try:
+        res = subprocess.run(
+            ["git", "rev-parse", "--verify", "--quiet", "origin/main"],
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if res.returncode == 0 and res.stdout.strip():
+            return "origin/main"
+    except (OSError, subprocess.SubprocessError):
+        pass
+    return "main"
+
+
+# Git lock files — ONE policy for the daemon's preflight and pull step and
+# for pr_output_manager's retry helper, so a correction reaches every site.
+#
+# Git creates index.lock EMPTY and fills it as the last step, so a 0-byte lock
+# is a git process that died before writing: the mdlint-sandbox lock that
+# blocked 314 consecutive pulls (2026-08-20 → 08-28) was 0 bytes and 7.4 days
+# old. A NON-empty lock can be alive for a long time: ``git commit -a`` and
+# ``git commit <path>`` hold a fully written index.lock for the whole editor
+# session, and unlinking it under that commit corrupts the commit's index
+# (reproduced 2026-08-28). So an empty lock is stale after five minutes; any
+# lock only after an hour.
+STALE_GIT_LOCK_EMPTY_SECONDS = 300.0
+STALE_GIT_LOCK_ANY_SECONDS = 3600.0
+
+
+def stale_git_lock_age(lock: Path) -> float | None:
+    """Age in seconds when ``lock`` is stale by policy, else None.
+
+    None also when the file is absent or cannot be stat'ed.
+    """
+    try:
+        st = lock.stat()
+    except OSError:
+        return None
+    age = time.time() - st.st_mtime
+    limit = (
+        STALE_GIT_LOCK_EMPTY_SECONDS if st.st_size == 0 else STALE_GIT_LOCK_ANY_SECONDS
+    )
+    return age if age > limit else None
+
+
+def clear_stale_git_lock(lock: Path) -> float | None:
+    """Unlink ``lock`` when stale by policy; return the age removed, else None.
+
+    Raises OSError when the lock is stale but cannot be removed, so callers
+    can tell "left alone on purpose" from "could not remove".
+    """
+    age = stale_git_lock_age(lock)
+    if age is None:
+        return None
+    lock.unlink()
+    return age
 
 
 def validate_worktree_base(base: Path, target: Path) -> bool:

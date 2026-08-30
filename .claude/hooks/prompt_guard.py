@@ -9,6 +9,15 @@ Security Profile Aware:
 - strict: Blocks on destructive keywords
 - standard: Warns on destructive keywords
 - minimal: Disabled
+
+Automated context (a daemon worker or the deliverable judge — FORGE_WORKER_CONTEXT
+/ FORGE_DAEMON / FORGE_EMPLOYEE_ID in the environment): never blocks, only warns,
+whatever the profile. Those prompts are machine-built and embed git history, file
+contents and PR diffs; blocking one does not stop a destructive action, it
+produces a silent phantom — the worker gets no prompt and exits 0 (2026-08-17),
+or the judge fails closed on a diff that merely contains the word "wipe"
+(2026-08-28: four PRs on one file, each held "no parseable verdict"). Real
+commands stay guarded by block_dangerous.py.
 """
 
 import json
@@ -30,6 +39,32 @@ except ImportError:
 
 
 HOOK_NAME = "prompt_guard"
+
+# Set by agent_providers.prepare_environment for every worker and judge spawn;
+# the marker propagates to hooks (same triad network_egress_guard uses).
+_AUTOMATED_ENV_MARKERS = ("FORGE_WORKER_CONTEXT", "FORGE_DAEMON", "FORGE_EMPLOYEE_ID")
+
+
+def is_automated_context(environ=None) -> bool:
+    """True when the prompt was built by a machine, not typed by a human."""
+    env = os.environ if environ is None else environ
+    return any(env.get(marker) for marker in _AUTOMATED_ENV_MARKERS)
+
+
+def caution_exit_code(automated: bool | None = None) -> int:
+    """Exit code for a caution-keyword match.
+
+    Interactive: the profile decides (strict -> 2 block, standard -> 1 warn;
+    minimal disables the hook before we get here). Automated: 1 (warn), never
+    block — see the module docstring for why a block there is a phantom, not
+    a safety gain.
+    """
+    if automated is None:
+        automated = is_automated_context()
+    if automated:
+        return 1
+    return get_exit_code(HOOK_NAME)
+
 
 LOG_DIR = os.path.join(os.getcwd(), "logs")
 PROMPT_LOG = os.path.join(LOG_DIR, "prompts.jsonl")
@@ -93,16 +128,24 @@ def main():
         f.write(json.dumps(entry) + "\n")
 
     # Check for caution keywords (word-boundary matched — see _CAUTION_PATTERNS).
-    # Note: Caution keywords always block (exit 2) regardless of profile
-    # because they indicate destructive intent that requires user confirmation
+    # The exit code follows the profile (hook_config: strict block, standard
+    # warn) and is never a block for a machine-built prompt.
     for keyword, pattern in _CAUTION_PATTERNS:
         if pattern.search(prompt):
-            print(
-                f"CAUTION: Prompt contains '{keyword}' — blocked. "
-                "The agent will proceed carefully with confirmation at each destructive step.",
-                file=sys.stderr,
-            )
-            sys.exit(2)
+            code = caution_exit_code()
+            if code == 2:
+                print(
+                    f"CAUTION: Prompt contains '{keyword}' — blocked (strict profile). "
+                    "Rephrase, or confirm the destructive intent explicitly.",
+                    file=sys.stderr,
+                )
+            else:
+                print(
+                    f"CAUTION: Prompt contains '{keyword}' — flagged, not blocked. "
+                    "Destructive shell commands remain guarded by block_dangerous.",
+                    file=sys.stderr,
+                )
+            sys.exit(code)
 
     sys.exit(0)
 

@@ -34,7 +34,7 @@ import re
 import shutil
 import subprocess
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 try:
@@ -125,7 +125,26 @@ DEFAULT_CONFIG = {
     "semanticTimeoutSeconds": 60,
     # Model alias/id for `claude --model`; null => omit the flag (CLI default).
     "semanticModel": None,
+    # Repeat-rejection escalation (2026-08-17). A rejection is a dead end for
+    # ONE task_id, but the planner re-mints the same work under a NEW id every
+    # cycle, so a permanently-rejected item loops forever: minted, rejected,
+    # logged, forgotten. Every existing counter (retry budget, escalation
+    # threshold) is keyed on task_id and therefore resets to zero on each
+    # re-mint, which makes the loop invisible to all of them. Observed the day
+    # this was written: SCOUT-20260814-3 rejected 40 times in 12 hours, once
+    # every ~18 minutes, while the queue read "pending: 0" and nothing paged.
+    # Counting by TITLE across re-mints is what makes the loop visible.
+    "escalateRepeatRejections": True,
+    "repeatRejectionThreshold": 3,
+    "repeatRejectionWindowHours": 24,
+    # Don't re-page for the same title while an operator is presumably looking.
+    "repeatRejectionDedupHours": 12,
 }
+
+# Tail of the append-only rejection log scanned when counting repeats. The log
+# is unbounded; only recent entries can fall inside the window, so the scan is
+# capped instead of growing with file size.
+_REJECTION_SCAN_LINES = 2000
 
 # Directories never worth scanning for symbol/file validity checks.
 _EXCLUDE_DIRS = frozenset(
@@ -880,6 +899,167 @@ def log_rejection(
         }
         with open(path, "a", encoding="utf-8") as handle:
             handle.write(json.dumps(record) + "\n")
+    except Exception:
+        pass
+
+    if not shadow:
+        _maybe_escalate_repeat_rejection(repo_root, task, reason)
+
+
+def _rejection_identity(title: object) -> str:
+    """Stable key for 'the same work, re-minted under a new task_id'."""
+    return " ".join(str(title or "").lower().split())
+
+
+def _count_recent_rejections(path: Path, identity: str, window_hours: float) -> int:
+    """Non-shadow rejections of this identity inside the window. Never raises."""
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=window_hours)
+    count = 0
+    try:
+        with open(path, encoding="utf-8") as handle:
+            # The log is append-only and unbounded; only the tail can be in
+            # window, so cap the scan rather than growing with file size.
+            lines = handle.readlines()[-_REJECTION_SCAN_LINES:]
+    except OSError:
+        return 0
+    for line in lines:
+        try:
+            row = json.loads(line)
+        except (json.JSONDecodeError, TypeError):
+            continue
+        if row.get("shadow"):
+            continue
+        if _rejection_identity(row.get("title")) != identity:
+            continue
+        try:
+            ts = datetime.fromisoformat(str(row.get("ts", "")).replace("Z", "+00:00"))
+        except (ValueError, TypeError):
+            continue
+        if ts.tzinfo is None:
+            ts = ts.replace(tzinfo=timezone.utc)
+        if ts >= cutoff:
+            count += 1
+    return count
+
+
+def _maybe_escalate_repeat_rejection(
+    repo_root: Path | str,
+    task: dict,
+    reason: str,
+) -> None:
+    """Page a human once the same work has been rejected repeatedly.
+
+    A single rejection is a correct, quiet outcome. The same title rejected
+    N times means the planner and the gate disagree permanently, and neither
+    side can break the tie — the work is either wrongly scoped (planner should
+    stop minting it) or wrongly gated (a real item the gate cannot see the
+    value of). Both readings need a human, and until this existed neither
+    produced any signal at all. Never raises: admission must not fail because
+    escalation bookkeeping did.
+    """
+    try:
+        config = load_admission_config(repo_root)
+        if not config.get("escalateRepeatRejections", True):
+            return
+
+        identity = _rejection_identity(task.get("title"))
+        if not identity:
+            return
+
+        company = Path(repo_root) / ".company"
+        log_path = company / "state" / "task_admission_rejections.jsonl"
+        threshold = int(config.get("repeatRejectionThreshold", 3))
+        window = float(config.get("repeatRejectionWindowHours", 24))
+
+        if _count_recent_rejections(log_path, identity, window) < threshold:
+            return
+
+        slug = hashlib.sha1(identity.encode("utf-8")).hexdigest()[:10]
+        esc_dir = company / "escalations"
+        dedup_hours = float(config.get("repeatRejectionDedupHours", 12))
+        now = datetime.now(timezone.utc)
+
+        # One page per title per dedup window, however many times it re-mints.
+        for existing in esc_dir.glob(f"admission-repeat-{slug}-*.json"):
+            try:
+                prior = json.loads(existing.read_text(encoding="utf-8"))
+                when = datetime.fromisoformat(
+                    str(prior.get("created_at", "")).replace("Z", "+00:00")
+                )
+                if when.tzinfo is None:
+                    when = when.replace(tzinfo=timezone.utc)
+                if (now - when).total_seconds() < dedup_hours * 3600:
+                    return
+            except (OSError, ValueError, json.JSONDecodeError, TypeError):
+                continue
+
+        record_id = f"admission-repeat-{slug}-{now.strftime('%Y%m%d%H%M')}"
+        title = str(task.get("title") or "")[:120]
+        record = {
+            "task_id": record_id,
+            "current_tier": 2,
+            "status": "pending",
+            "created_at": now.isoformat(),
+            "updated_at": now.isoformat(),
+            "original_agent": "task_admission",
+            "current_agent": None,
+            "trigger": "repeat_admission_rejection",
+            "trigger_details": {
+                "title": title,
+                "identity": identity,
+                "rejections_in_window": _count_recent_rejections(
+                    log_path, identity, window
+                ),
+                "threshold": threshold,
+                "window_hours": window,
+                "latest_reason": str(reason)[:400],
+                "latest_task_id": task.get("task_id"),
+                "note": (
+                    "The planner keeps re-minting this work under a new task_id "
+                    "and the gate keeps rejecting it. Decide which side is wrong: "
+                    "stop minting it, or admit it."
+                ),
+            },
+            "events": [
+                {
+                    "timestamp": now.isoformat(),
+                    "tier": 2,
+                    "trigger": "repeat_admission_rejection",
+                    "action_taken": f"Repeatedly rejected: {title}",
+                    "resolved": False,
+                }
+            ],
+            "metadata": {
+                "title": f"Repeatedly rejected by admission: {title}",
+                "condition": "repeat_admission_rejection",
+            },
+        }
+        esc_dir.mkdir(parents=True, exist_ok=True)
+        (esc_dir / f"{record_id}.json").write_text(json.dumps(record, indent=2))
+    except Exception:
+        return
+
+    # Fire the same opt-in page silence_sentinel uses (osascript / webhook,
+    # both off by default). Writing the file alone only makes the escalation
+    # discoverable by someone already looking at the directory.
+    try:
+        try:
+            from . import escalation as escalation_mod  # type: ignore[attr-defined]
+        except ImportError:
+            import escalation as escalation_mod  # type: ignore[no-redef]
+
+        escalation_mod.fire_escalation_opt_in_notifications(
+            escalation_mod.EscalationRecord(
+                task_id=record["task_id"],
+                current_tier=2,
+                status="pending",
+                created_at=record["created_at"],
+                updated_at=record["updated_at"],
+                original_agent="task_admission",
+                trigger="repeat_admission_rejection",
+            ),
+            record["metadata"]["title"],
+        )
     except Exception:
         pass
 

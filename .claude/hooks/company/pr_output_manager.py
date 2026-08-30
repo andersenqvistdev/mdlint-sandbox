@@ -84,14 +84,16 @@ def _run_git_with_lock_retry(
         if not is_lock_error or attempt == max_retries:
             return result
 
-        # Try to clean up stale lock files before retrying
+        # Remove stale lock files before retrying — one policy for the whole
+        # daemon (company_resolver.stale_git_lock_age: a 0-byte lock after
+        # five minutes, any lock after an hour; a live interactive commit
+        # holds a non-empty index.lock for its whole editor session).
+        _ensure_imports()
         for lock_name in ("index.lock", "config.lock", "shallow.lock"):
             lock_path = Path(cwd or ".") / ".git" / lock_name
             if lock_path.exists():
                 try:
-                    age = time.time() - lock_path.stat().st_mtime
-                    if age > 300:  # older than 5 minutes = stale
-                        lock_path.unlink()
+                    company_resolver.clear_stale_git_lock(lock_path)
                 except OSError:
                     pass
 
