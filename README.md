@@ -102,10 +102,10 @@ exits with code `2` instead of silently narrowing the rule set.
 
 ## Rules
 
-mdlint currently implements 13 rules across three families — structure
-(`MDS`), whitespace (`MDW`), link (`MDL`), and list/table (`MDT`). See
-[`docs/rules.md`](docs/rules.md) for every rule with a passing and failing
-example.
+mdlint currently implements 16 rules across five families — structure
+(`MDS`), whitespace (`MDW`), link (`MDL`), fence (`MDF`), and list/table
+(`MDT`). See [`docs/rules.md`](docs/rules.md) for every rule with a passing
+and failing example.
 
 ## Development
 

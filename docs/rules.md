@@ -5,9 +5,10 @@ id, what it checks, and an example of markdown that passes and one that
 fails.
 
 Rule ids follow `MD<family><nn>`: `MDS` (structure), `MDW` (whitespace),
-`MDL` (link), `MDT` (list/table). A rule ships with its check, a passing
-test, a failing test, and the row below — see `.company/vision.md` for the
-convention and `tests/rules/` for the tests backing each example.
+`MDL` (link), `MDF` (fence), `MDT` (list/table). A rule ships with its
+check, a passing test, a failing test, and the row below — see
+`.company/vision.md` for the convention and `tests/rules/` for the tests
+backing each example.
 
 ## Structure (`MDS`)
 
@@ -243,6 +244,86 @@ See https://example.com for details.
 ```
 
 `docs/example.md:1: MDL03 bare URL 'https://example.com' should be wrapped in <> or a markdown link`
+
+## Fence (`MDF`)
+
+### MDF01 — fence-language-required
+
+Every fenced code block must declare a language in its info string (e.g.
+```` ```python ```` rather than a bare ```` ``` ````).
+
+Passing:
+
+````markdown
+```python
+print("hello")
+```
+````
+
+Failing:
+
+````markdown
+```
+print("hello")
+```
+````
+
+`docs/example.md:1: MDF01 fenced code block does not declare a language`
+
+### MDF02 — fence-closed
+
+Every fence opened in a document must be closed before the end of the file.
+An unclosed fence silently swallows everything after it into a single code
+block.
+
+Passing:
+
+````markdown
+```python
+print("hello")
+```
+````
+
+Failing (the fence below is opened but never closed):
+
+````text
+```python
+print("hello")
+````
+
+`docs/example.md:1: MDF02 fenced code block is never closed`
+
+### MDF03 — consistent-fence-marker
+
+The first fence character (backtick or tilde) encountered in a document sets
+the expected marker; every later fence opened with the other character is
+flagged.
+
+Passing:
+
+````markdown
+```python
+one
+```
+
+```text
+two
+```
+````
+
+Failing:
+
+````markdown
+```python
+one
+```
+
+~~~text
+two
+~~~
+````
+
+``docs/example.md:5: MDF03 fence marker '~' is inconsistent; file uses '`'``
 
 ## List and table (`MDT`)
 

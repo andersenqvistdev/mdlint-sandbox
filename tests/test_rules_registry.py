@@ -8,8 +8,11 @@ from mdlint.rules import Rule, all_rules, register
 def test_all_rules_returns_every_registered_rule():
     rules = all_rules()
 
-    assert len(rules) == 13
+    assert len(rules) == 16
     assert {rule.id for rule in rules} == {
+        "MDF01",
+        "MDF02",
+        "MDF03",
         "MDL01",
         "MDL02",
         "MDL03",
