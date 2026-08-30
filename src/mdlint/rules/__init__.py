@@ -47,6 +47,9 @@ def all_rules() -> list[Rule]:
 # Importing each rule module triggers its register() call. This is the only
 # place that needs to know a new rule module exists.
 from mdlint.rules import (  # noqa: E402
+    md_f01_fence_language_required,  # noqa: F401
+    md_f02_fence_closed,  # noqa: F401
+    md_f03_consistent_fence_marker,  # noqa: F401
     md_l01_link_target_exists,  # noqa: F401
     md_l02_no_empty_link_text,  # noqa: F401
     md_l03_no_bare_urls,  # noqa: F401
