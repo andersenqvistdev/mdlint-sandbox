@@ -56,3 +56,11 @@ def test_duplicate_matching_is_case_sensitive():
     lines = ["# Title", "## Alpha", "## alpha"]
 
     assert check("doc.md", lines) == []
+
+
+def test_flags_every_repeat_beyond_the_first_occurrence():
+    lines = ["# Title", "## Alpha", "## Alpha", "## Alpha"]
+
+    violations = check("doc.md", lines)
+
+    assert [v.line for v in violations] == [3, 4]
