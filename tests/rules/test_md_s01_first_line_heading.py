@@ -58,3 +58,10 @@ def test_fails_when_document_opens_with_a_fenced_code_block():
     assert len(violations) == 1
     assert violations[0].rule_id == RULE_ID
     assert violations[0].line == 1
+
+
+def test_passes_when_first_line_is_a_bare_hash_with_no_text():
+    # "#" alone is still a valid (if empty) top-level ATX heading.
+    lines = ["#", "body"]
+
+    assert check("doc.md", lines) == []
