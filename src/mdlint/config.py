@@ -19,6 +19,8 @@ def load_enabled_rule_ids(path: Path) -> list[str] | None:
         text = path.read_text(encoding="utf-8")
     except FileNotFoundError:
         return None
+    except (IsADirectoryError, PermissionError, UnicodeDecodeError) as err:
+        raise ConfigError(f"{path}: {err}") from err
 
     try:
         data = json.loads(text)
