@@ -42,6 +42,10 @@ def test_ignores_unordered_items_inside_fenced_code_blocks():
     assert [item.line for item in items] == [1, 5]
 
 
+def test_ignores_a_bullet_indented_four_or_more_spaces_as_indented_code():
+    assert list(iter_unordered_list_items(["    - looks like a bullet"])) == []
+
+
 def test_extracts_ordered_items_with_number_indent_and_line():
     lines = ["1. one", "  2. two"]
 
@@ -67,3 +71,7 @@ def test_ignores_ordered_items_inside_fenced_code_blocks():
     items = list(iter_ordered_list_items(lines))
 
     assert [item.line for item in items] == [1, 5]
+
+
+def test_ignores_a_number_indented_four_or_more_spaces_as_indented_code():
+    assert list(iter_ordered_list_items(["    1. looks like an item"])) == []
