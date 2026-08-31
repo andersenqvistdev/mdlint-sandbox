@@ -23,7 +23,16 @@ class Link:
 
 
 def mask_code_spans(line: str) -> str:
-    """Replace inline code span contents with spaces, preserving line length."""
+    """Blank inline code span syntax, preserving line length and content emptiness.
+
+    The backtick delimiters are replaced with spaces so their content can't be
+    mistaken for markdown syntax (a stray ``]`` or ``(`` inside a span). The
+    content itself is replaced character-by-character (non-whitespace -> ``x``,
+    whitespace kept as-is) rather than blanked outright: blanking it entirely
+    would make link text that's just a code span (`` [`x`](y) ``) look empty to
+    MDL02, and would let a URL that spans a masked-to-spaces run still read as
+    "no content" instead of "content that happens not to be a bare URL".
+    """
     result = []
     i = 0
     n = len(line)
@@ -35,9 +44,13 @@ def mask_code_spans(line: str) -> str:
             run_len = i - run_start
             close = _find_closing_run(line, i, run_len)
             if close is not None:
-                end = close + run_len
-                result.append(" " * (end - run_start))
-                i = end
+                content_start = i
+                content = line[content_start:close]
+                masked_content = "".join(" " if c.isspace() else "x" for c in content)
+                result.append(" " * run_len)
+                result.append(masked_content)
+                result.append(" " * run_len)
+                i = close + run_len
                 continue
             result.append("`" * run_len)
             continue
