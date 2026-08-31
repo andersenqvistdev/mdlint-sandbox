@@ -65,3 +65,63 @@ def test_passes_when_first_line_is_a_bare_hash_with_no_text():
     lines = ["#", "body"]
 
     assert check("doc.md", lines) == []
+
+
+def test_passes_when_utf8_bom_precedes_h1():
+    lines = ["﻿# Title", "body"]
+
+    assert check("doc.md", lines) == []
+
+
+def test_fails_when_utf8_bom_precedes_non_heading_text():
+    lines = ["﻿Some intro text", "", "# Title"]
+
+    violations = check("doc.md", lines)
+
+    assert len(violations) == 1
+    assert violations[0].line == 1
+
+
+def test_passes_when_h1_follows_yaml_front_matter():
+    lines = ["---", "title: Example", "tags: [a, b]", "---", "", "# Title", "body"]
+
+    assert check("doc.md", lines) == []
+
+
+def test_passes_when_h1_follows_toml_front_matter():
+    lines = ["+++", 'title = "Example"', "+++", "# Title"]
+
+    assert check("doc.md", lines) == []
+
+
+def test_fails_when_non_heading_follows_front_matter():
+    lines = ["---", "title: Example", "---", "Some intro text", "", "# Title"]
+
+    violations = check("doc.md", lines)
+
+    assert len(violations) == 1
+    assert violations[0].line == 4
+
+
+def test_fails_on_original_first_line_when_front_matter_is_unterminated():
+    # No closing "---" — this is not front matter, just a thematic break /
+    # setext underline that happens to open the file, so it is still checked
+    # (and flagged) as the document's first line.
+    lines = ["---", "title: Example", "# Title"]
+
+    violations = check("doc.md", lines)
+
+    assert len(violations) == 1
+    assert violations[0].line == 1
+
+
+def test_front_matter_delimiter_must_be_the_literal_first_line():
+    # A "---" that only appears after leading blank lines is not front
+    # matter (Jekyll/Hugo require it to open the file) and is correctly
+    # flagged as a non-heading first line.
+    lines = ["", "---", "title: Example", "---", "# Title"]
+
+    violations = check("doc.md", lines)
+
+    assert len(violations) == 1
+    assert violations[0].line == 2
