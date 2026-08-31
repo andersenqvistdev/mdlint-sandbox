@@ -68,3 +68,12 @@ def test_fix_is_a_noop_when_already_consistent():
 
 def test_fix_is_a_noop_for_a_single_fence():
     assert fix(["~~~text", "one", "~~~"]) == ["~~~text", "one", "~~~"]
+
+
+def test_fix_skips_a_later_block_that_already_matches_the_expected_marker():
+    lines = ["```python", "a", "```", "~~~", "b", "~~~", "```", "c", "```"]
+
+    fixed = fix(lines)
+
+    assert fixed == ["```python", "a", "```", "```", "b", "```", "```", "c", "```"]
+    assert check("doc.md", fixed) == []
