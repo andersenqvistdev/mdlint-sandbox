@@ -11,6 +11,10 @@ dependencies = []
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0", "pytest-cov>=5.0", "ruff>=0.6"]
+# Reference CommonMark parser used ONLY by the acceptance gate
+# (tools/acceptance). Never a runtime dependency: mdlint itself stays
+# dependency-light, which is why `dependencies` above is empty.
+acceptance = ["markdown-it-py>=3.0"]
 
 [project.scripts]
 mdlint = "mdlint.cli:main"

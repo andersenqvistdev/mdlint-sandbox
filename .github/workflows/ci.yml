@@ -26,3 +26,50 @@ jobs:
 
       - name: Test
         run: pytest tests/ -q
+
+  acceptance:
+    # Does mdlint agree with CommonMark? The unit tests cannot answer this: they
+    # were written by the same process that wrote the linter, so they certify its
+    # bugs as intended behaviour. This job asks a reference implementation instead.
+    name: acceptance (CommonMark oracle)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[acceptance]"
+
+      # The gate must not be modifiable by the change it is judging. The checker,
+      # the relations and the corpus are taken from origin/main; only baseline.json
+      # is read from the branch, because a PR that genuinely fixes a defect has to
+      # be able to retire its baseline entry. Growing the baseline is still
+      # possible, but only as an explicit, reviewable line in the diff.
+      - name: Take the gate from origin/main, not from this branch
+        run: |
+          git fetch origin main
+          if git cat-file -e origin/main:tools/acceptance/check.py 2>/dev/null; then
+            cp tools/acceptance/baseline.json /tmp/branch-baseline.json
+            rm -rf tools/acceptance
+            git checkout origin/main -- tools/acceptance
+            cp /tmp/branch-baseline.json tools/acceptance/baseline.json
+            echo "gate sourced from origin/main; baseline from this branch"
+          else
+            echo "gate not on main yet — this is the PR that introduces it"
+          fi
+
+      # A gate that always passes is indistinguishable from a gate that works.
+      # The canary injects known bugs and requires the gate to catch every one;
+      # if any survives, the gate is blind there and the run is unsound.
+      - name: Canary — prove the gate can fail
+        run: python tools/acceptance/canary.py
+
+      - name: Gate — mdlint must agree with CommonMark outside the baseline
+        run: python tools/acceptance/check.py
