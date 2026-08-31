@@ -192,6 +192,46 @@ def test_ignore_does_not_affect_non_matching_files(tmp_path, capsys):
     assert str(dirty) in captured.out
 
 
+def test_ignore_glob_pattern_matches_full_path_in_subdirectory(tmp_path, capsys, monkeypatch):
+    vendor = tmp_path / "vendor"
+    vendor.mkdir()
+    (vendor / "dirty.md").write_text("Not a heading\n")
+    monkeypatch.chdir(tmp_path)
+
+    exit_code = main(["--ignore", "vendor/*", "vendor/dirty.md"])
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert captured.out == ""
+
+
+def test_multiple_ignore_flags_each_skip_their_matching_file(tmp_path, capsys):
+    changelog = tmp_path / "CHANGELOG.md"
+    changelog.write_text("Not a heading\n")
+    draft = tmp_path / "draft-notes.md"
+    draft.write_text("Not a heading\n")
+    kept = tmp_path / "kept.md"
+    kept.write_text("Not a heading\n")
+
+    exit_code = main(
+        [
+            "--ignore",
+            "CHANGELOG.md",
+            "--ignore",
+            "draft-*.md",
+            str(changelog),
+            str(draft),
+            str(kept),
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert exit_code == 1
+    assert str(kept) in captured.out
+    assert str(changelog) not in captured.out
+    assert str(draft) not in captured.out
+
+
 def test_config_restricts_enabled_rules(tmp_path, capsys):
     doc = tmp_path / "doc.md"
     doc.write_text("Not a heading\n# Title\n### Too deep\n")
