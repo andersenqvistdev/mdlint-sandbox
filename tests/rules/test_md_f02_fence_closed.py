@@ -48,3 +48,22 @@ def test_tilde_fence_can_be_unclosed_too():
 
     assert len(violations) == 1
     assert violations[0].line == 1
+
+
+def test_balanced_fences_with_closing_info_string_report_nothing():
+    # Regression for the fence-pairing desync: every fence in this document
+    # is properly paired, including one closed by a line that superficially
+    # looks like an opener. No unclosed-fence violation should be reported.
+    lines = [
+        "```markdown",
+        "Some sample text.",
+        "```python",
+        "more sample text",
+        "```",
+        "",
+        "```",
+        "a genuinely undeclared block",
+        "```",
+    ]
+
+    assert check("doc.md", lines) == []
