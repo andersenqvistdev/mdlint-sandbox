@@ -72,3 +72,63 @@ def test_extracts_multiple_sequential_fences():
 
 def test_document_with_no_fences_yields_nothing():
     assert list(iter_fence_blocks(["plain text", "more text"])) == []
+
+
+def test_closing_line_with_info_string_does_not_close_the_fence():
+    """A line with an info string is content, per CommonMark's closing-fence rule."""
+    lines = ["```markdown", "Some sample text.", "```python", "more sample text", "```"]
+
+    blocks = list(iter_fence_blocks(lines))
+
+    assert blocks == [FenceBlock(marker="`", length=3, info="markdown", open_line=1, close_line=5)]
+
+
+def test_bare_fence_after_a_sample_block_is_still_a_real_open_and_close():
+    """Fences remain correctly paired for everything that follows a desync-prone block."""
+    lines = [
+        "```markdown",
+        "Some sample text.",
+        "```python",
+        "more sample text",
+        "```",
+        "",
+        "```",
+        "a genuinely undeclared block",
+        "```",
+    ]
+
+    blocks = list(iter_fence_blocks(lines))
+
+    assert blocks == [
+        FenceBlock(marker="`", length=3, info="markdown", open_line=1, close_line=5),
+        FenceBlock(marker="`", length=3, info="", open_line=7, close_line=9),
+    ]
+
+
+def test_backtick_in_a_backtick_fences_info_string_is_not_a_fence_line():
+    """CommonMark forbids backticks in a backtick fence's info string.
+
+    A prose line that happens to start with three backticks and also contains
+    a backtick later on (e.g. documentation about fences) must not open a
+    phantom block.
+    """
+    lines = [
+        "```` ```python ```` rather than a bare ```` ``` ````).",
+        "```python",
+        "real code",
+        "```",
+    ]
+
+    blocks = list(iter_fence_blocks(lines))
+
+    assert blocks == [FenceBlock(marker="`", length=3, info="python", open_line=2, close_line=4)]
+
+
+def test_tilde_fence_info_string_may_contain_backticks():
+    lines = ["~~~ `inline code` in info", "content", "~~~"]
+
+    blocks = list(iter_fence_blocks(lines))
+
+    assert blocks == [
+        FenceBlock(marker="~", length=3, info="`inline code` in info", open_line=1, close_line=3)
+    ]

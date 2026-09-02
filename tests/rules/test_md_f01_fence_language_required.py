@@ -42,3 +42,28 @@ def test_flags_a_bare_unclosed_fence_too():
 
 def test_tilde_fence_with_language_passes():
     assert check("doc.md", ["~~~python", "code", "~~~"]) == []
+
+
+def test_bare_fence_after_a_sample_block_is_flagged_at_its_own_open_line():
+    """A closing line with an info string must not desync where later opens land.
+
+    Regression for a bug where the bare fence at line 7 was misread as line 9's
+    open (or worse, the closer at line 9 was mistaken for the opener), moving
+    the violation to the wrong line or losing it entirely.
+    """
+    lines = [
+        "```markdown",
+        "Some sample text.",
+        "```python",
+        "more sample text",
+        "```",
+        "",
+        "```",
+        "a genuinely undeclared block",
+        "```",
+    ]
+
+    violations = check("doc.md", lines)
+
+    assert len(violations) == 1
+    assert violations[0].line == 7
