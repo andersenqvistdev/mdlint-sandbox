@@ -50,6 +50,22 @@ def test_tilde_fence_can_be_unclosed_too():
     assert violations[0].line == 1
 
 
+def test_indented_fence_can_be_unclosed_too():
+    lines = ["  ```python", "content"]
+
+    violations = check("doc.md", lines)
+
+    assert len(violations) == 1
+    assert violations[0].line == 1
+
+
+def test_four_space_indented_fence_is_indented_code_not_a_fence():
+    """Four spaces of indentation is an indented code block, out of scope for MDF02."""
+    lines = ["    ```python", "content"]
+
+    assert check("doc.md", lines) == []
+
+
 def test_balanced_fences_with_an_info_string_on_the_closing_line_report_nothing():
     """A closing-looking line with an info string is content, not a real close.
 
