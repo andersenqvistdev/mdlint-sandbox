@@ -48,3 +48,25 @@ def test_tilde_fence_can_be_unclosed_too():
 
     assert len(violations) == 1
     assert violations[0].line == 1
+
+
+def test_closing_fence_with_info_string_is_not_a_close():
+    """Balanced fences must produce no unclosed-fence violation.
+
+    A same-marker line with an info string mid-block (e.g. a sample fence
+    quoted inside documentation) must not be mistaken for the close, and
+    must not desync pairing for the rest of the document.
+    """
+    lines = [
+        "```markdown",
+        "Some sample text.",
+        "```python",
+        "more sample text",
+        "```",
+        "",
+        "```",
+        "a genuinely undeclared block",
+        "```",
+    ]
+
+    assert check("doc.md", lines) == []
