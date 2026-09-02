@@ -1,7 +1,10 @@
-"""ATX heading extraction shared by the structure rules (MDS family).
+"""ATX and setext heading extraction shared by the structure rules (MDS family).
 
 Fenced code blocks are skipped so that a line like ``# not a heading``
-inside a ``` fence isn't mistaken for a heading.
+inside a ``` fence isn't mistaken for a heading. Setext headings (a line of
+title text immediately followed by a line of only ``=`` or ``-`` characters)
+are also recognized, following CommonMark's rules for what does and doesn't
+count as a valid underline.
 """
 
 import re
@@ -11,11 +14,13 @@ from dataclasses import dataclass
 _FENCE_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
 _ATX_RE = re.compile(r"^ {0,3}(#{1,6})(?:\s+(.*))?$")
 _TRAILING_HASHES_RE = re.compile(r"(?:^|\s)#+\s*$")
+_SETEXT_UNDERLINE_RE = re.compile(r"^ {0,3}(=+|-+)[ \t]*$")
+_LIST_ITEM_RE = re.compile(r"^ {0,3}([-*+]|\d{1,9}[.)])(\s+)\S")
 
 
 @dataclass(frozen=True)
 class Heading:
-    """A single ATX heading found in a document."""
+    """A single ATX or setext heading found in a document."""
 
     level: int
     text: str
@@ -23,14 +28,18 @@ class Heading:
 
 
 def iter_headings(lines: list[str]) -> Iterator[Heading]:
-    """Yield a Heading for each ATX heading in lines, in document order."""
+    """Yield a Heading for each ATX or setext heading in lines, in document order."""
     fence_char: str | None = None
     fence_len = 0
+    paragraph_start: int | None = None
+    paragraph_texts: list[str] = []
     for lineno, raw_line in enumerate(lines, start=1):
         fence_match = _FENCE_RE.match(raw_line)
         if fence_match:
             marker = fence_match.group(1)
             if fence_char is None:
+                paragraph_start = None
+                paragraph_texts = []
                 fence_char, fence_len = marker[0], len(marker)
             elif marker[0] == fence_char and len(marker) >= fence_len:
                 fence_char = None
@@ -38,8 +47,37 @@ def iter_headings(lines: list[str]) -> Iterator[Heading]:
         if fence_char is not None:
             continue
         heading_match = _ATX_RE.match(raw_line)
-        if not heading_match:
+        if heading_match:
+            level = len(heading_match.group(1))
+            text = _TRAILING_HASHES_RE.sub("", heading_match.group(2) or "").strip()
+            yield Heading(level=level, text=text, line=lineno)
+            paragraph_start = None
+            paragraph_texts = []
             continue
-        level = len(heading_match.group(1))
-        text = _TRAILING_HASHES_RE.sub("", heading_match.group(2) or "").strip()
-        yield Heading(level=level, text=text, line=lineno)
+        if raw_line.strip() == "":
+            paragraph_start = None
+            paragraph_texts = []
+            continue
+        setext_match = _SETEXT_UNDERLINE_RE.match(raw_line)
+        if setext_match:
+            if paragraph_start is not None:
+                level = 1 if setext_match.group(1)[0] == "=" else 2
+                text = " ".join(paragraph_texts).strip()
+                yield Heading(level=level, text=text, line=paragraph_start)
+                paragraph_start = None
+                paragraph_texts = []
+                continue
+            elif setext_match.group(1)[0] == "-" and len(setext_match.group(1)) >= 3:
+                continue
+            # else: fall through — lone `-`/`--` or a run of `=` with nothing
+            # above are just ordinary paragraph text per CommonMark.
+        list_match = _LIST_ITEM_RE.match(raw_line)
+        if list_match:
+            paragraph_start = None
+            paragraph_texts = []
+            continue
+        if paragraph_start is None:
+            paragraph_start = lineno
+            paragraph_texts = [raw_line.strip()]
+        else:
+            paragraph_texts.append(raw_line.strip())
