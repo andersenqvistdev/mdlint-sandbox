@@ -83,12 +83,20 @@ def iter_masked_lines(lines: list[str]) -> Iterator[tuple[int, str]]:
 
 
 def iter_links(lines: list[str]) -> Iterator[Link]:
-    """Yield a Link for each inline markdown link/image in lines, in order."""
+    """Yield a Link for each inline markdown link/image in lines, in order.
+
+    Link syntax is located in the masked line so link-like text inside code
+    spans isn't mistaken for a real link, but the text and target are sliced
+    from the raw line at the same offsets: mask_code_spans preserves length,
+    so a link whose visible text merely contains a code span (e.g.
+    ``[`foo`](foo.md)``) still yields its real text instead of blanks.
+    """
     for lineno, masked in iter_masked_lines(lines):
+        raw_line = lines[lineno - 1]
         for match in _LINK_RE.finditer(masked):
             yield Link(
-                text=match.group(1),
-                target=match.group(2),
+                text=raw_line[match.start(1) : match.end(1)],
+                target=raw_line[match.start(2) : match.end(2)],
                 line=lineno,
                 is_image=match.group(0).startswith("!"),
             )
