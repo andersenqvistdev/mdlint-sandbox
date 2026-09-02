@@ -70,6 +70,15 @@ def test_fix_is_a_noop_for_a_single_fence():
     assert fix(["~~~text", "one", "~~~"]) == ["~~~text", "one", "~~~"]
 
 
+def test_fix_preserves_leading_indentation_of_an_indented_fence():
+    lines = ["```python", "one", "```", "  ~~~text", "two", "  ~~~"]
+
+    fixed = fix(lines)
+
+    assert fixed == ["```python", "one", "```", "  ```text", "two", "  ```"]
+    assert check("doc.md", fixed) == []
+
+
 def test_fix_skips_a_later_block_that_already_matches_the_expected_marker():
     lines = ["```python", "a", "```", "~~~", "b", "~~~", "```", "c", "```"]
 

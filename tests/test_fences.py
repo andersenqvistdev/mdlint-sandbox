@@ -132,3 +132,23 @@ def test_tilde_fence_info_string_may_contain_backticks():
     assert blocks == [
         FenceBlock(marker="~", length=3, info="`inline code` in info", open_line=1, close_line=3)
     ]
+
+
+def test_fence_indented_by_up_to_three_spaces_is_recognized():
+    lines = ["   ```python", "code", "   ```"]
+
+    blocks = list(iter_fence_blocks(lines))
+
+    assert blocks == [FenceBlock(marker="`", length=3, info="python", open_line=1, close_line=3)]
+
+
+def test_fence_indented_by_four_or_more_spaces_is_not_a_fence():
+    """Four spaces of indentation makes this an indented code block, not a fence.
+
+    Per CommonMark, only 0-3 spaces of leading indentation permit a fence; a
+    fourth space means the line is indented code and must not be mistaken for
+    a fence opener or closer.
+    """
+    lines = ["    ```", "not a real fence, this is indented code", "    ```"]
+
+    assert list(iter_fence_blocks(lines)) == []

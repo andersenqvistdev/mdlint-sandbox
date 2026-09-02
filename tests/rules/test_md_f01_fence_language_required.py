@@ -44,6 +44,22 @@ def test_tilde_fence_with_language_passes():
     assert check("doc.md", ["~~~python", "code", "~~~"]) == []
 
 
+def test_indented_bare_fence_is_still_flagged():
+    lines = ["  ```", "code", "  ```"]
+
+    violations = check("doc.md", lines)
+
+    assert len(violations) == 1
+    assert violations[0].line == 1
+
+
+def test_four_space_indented_bare_fence_is_indented_code_not_a_fence():
+    """Four spaces of indentation is an indented code block, out of scope for MDF01."""
+    lines = ["    ```", "not a fence", "    ```"]
+
+    assert check("doc.md", lines) == []
+
+
 def test_bare_fence_after_a_sample_block_is_flagged_at_its_own_open_line():
     """A closing line with an info string must not desync where later opens land.
 
