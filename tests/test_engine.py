@@ -23,6 +23,26 @@ def test_registers_all_three_link_rules():
     assert {"MDL01", "MDL02", "MDL03"} <= ids
 
 
+def test_registers_all_three_fence_rules():
+    ids = {rule.id for rule in all_rules()}
+
+    assert {"MDF01", "MDF02", "MDF03"} <= ids
+
+
+def test_aggregates_all_three_fence_rules_sorted_by_line():
+    # "```\none\n```\n~~~text\ntwo\n" via the CLI's split("\n"): a closed,
+    # bare (no-language) backtick fence, followed by an unclosed tilde fence
+    # whose marker disagrees with the file's first fence.
+    lines = ["```", "one", "```", "~~~text", "two"]
+    fence_rules = [rule for rule in all_rules() if rule.id.startswith("MDF")]
+
+    violations = lint_lines("doc.md", lines, rules=fence_rules)
+
+    assert [v.rule_id for v in violations] == ["MDF01", "MDF02", "MDF03"]
+    assert [v.line for v in violations] == [1, 4, 4]
+    assert all(v.file == "doc.md" for v in violations)
+
+
 def test_clean_document_has_no_violations():
     # "# Title\n\n## Section\n" via the CLI's split("\n")
     lines = ["# Title", "", "## Section", ""]
