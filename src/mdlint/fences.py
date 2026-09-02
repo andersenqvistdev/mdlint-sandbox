@@ -2,8 +2,14 @@
 
 A fence opens with a line of three or more backticks or tildes (indented by
 at most three spaces) and closes with a line using the same character, at
-least as long as the opening run. A fence that never finds a matching
-closing line stays open through the end of the document.
+least as long as the opening run and carrying no info string of its own —
+a closing line with an info string is just more fence content. A backtick
+fence's info string may not itself contain a backtick, since that would be
+ambiguous with the fence marker; such a line is not a fence line at all
+(neither an opener nor content-ending closer), which keeps prose lines that
+happen to start with three backticks from opening a phantom block. A fence
+that never finds a matching closing line stays open through the end of the
+document.
 """
 
 import re
@@ -30,8 +36,10 @@ def iter_fence_blocks(lines: list[str]) -> Iterator[FenceBlock]:
     Only lines outside any currently-open fence are considered as candidate
     opening fences, so a fence's own body can never be mistaken for another
     fence boundary. A closing line must use the same marker character as the
-    fence it closes and be at least as long; anything else is left inside
-    the block as content.
+    fence it closes, be at least as long, and carry no info string; anything
+    else is left inside the block as content. A backtick-marker line whose
+    info string contains a backtick is never a fence line at all, since
+    CommonMark forbids backticks in a backtick fence's info string.
     """
     open_marker: str | None = None
     open_length = 0
@@ -46,6 +54,9 @@ def iter_fence_blocks(lines: list[str]) -> Iterator[FenceBlock]:
         length = len(match.group(1))
         info = match.group(2)
 
+        if marker == "`" and "`" in info:
+            continue
+
         if open_marker is None:
             open_marker = marker
             open_length = length
@@ -54,6 +65,8 @@ def iter_fence_blocks(lines: list[str]) -> Iterator[FenceBlock]:
             continue
 
         if marker == open_marker and length >= open_length:
+            if info:
+                continue
             yield FenceBlock(
                 marker=open_marker,
                 length=open_length,

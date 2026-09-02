@@ -48,3 +48,36 @@ def test_tilde_fence_can_be_unclosed_too():
 
     assert len(violations) == 1
     assert violations[0].line == 1
+
+
+def test_balanced_fences_with_an_info_string_on_the_closing_line_report_nothing():
+    """A closing-looking line with an info string is content, not a real close.
+
+    The real closing fence is the bare ``` two lines later, so the block is
+    balanced and MDF02 must not report an unclosed fence.
+    """
+    lines = ["```markdown", "Some sample text.", "```python", "more sample text", "```"]
+
+    assert check("doc.md", lines) == []
+
+
+def test_bare_fence_after_a_sample_block_with_info_string_is_still_paired():
+    """Fence pairing must not desync after a block containing a fence-like line.
+
+    Regression for a bug where a closing line with an info string wrongly
+    closed the first fence, causing every fence after it to be misread —
+    reporting real closing fences as false unclosed opens.
+    """
+    lines = [
+        "```markdown",
+        "Some sample text.",
+        "```python",
+        "more sample text",
+        "```",
+        "",
+        "```",
+        "a genuinely undeclared block",
+        "```",
+    ]
+
+    assert check("doc.md", lines) == []
