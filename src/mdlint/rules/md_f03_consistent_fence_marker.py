@@ -51,10 +51,7 @@ def fix(lines: list[str]) -> list[str]:
         for fence_line in fence_lines:
             idx = fence_line - 1
             line = fixed[idx]
-            span = fence_marker_span(line)
-            if span is None:
-                continue
-            start, end = span
+            start, end = fence_marker_span(line)
             marker_run = expected_marker * (end - start)
             fixed[idx] = line[:start] + marker_run + line[end:]
     return fixed
