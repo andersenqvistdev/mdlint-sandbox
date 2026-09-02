@@ -119,6 +119,42 @@ def undeclared_fence_lines(text: str) -> set[int]:
     return {b["line"] for b in fenced_blocks(text) if b["info"] == ""}
 
 
+def _is_closing_line(line: str, marker: str) -> bool:
+    """True when line is a valid CommonMark closer for a fence opened with marker.
+
+    A closer needs 0-3 leading spaces, a run of the same character at least as
+    long as the opener, and nothing but whitespace after that run (an info
+    string there makes it content, not a close).
+    """
+    stripped = line.lstrip(" ")
+    if len(line) - len(stripped) > 3:
+        return False
+    char = marker[0]
+    run_len = len(stripped) - len(stripped.lstrip(char))
+    if run_len < len(marker):
+        return False
+    return stripped[run_len:].strip() == ""
+
+
+def unclosed_fence_lines(text: str) -> set[int]:
+    """Opening lines of fenced blocks with no matching closer — the true MDF02 set.
+
+    CommonMark lets a fence run to EOF with no closer, and ``tok.map`` covers
+    that case identically to an explicit close. So this checks the raw line at
+    the block's end directly, rather than trusting that the parser found one.
+    """
+    lines = text.split("\n")
+    unclosed = set()
+    for tok in _tokens(text):
+        if tok.type != "fence" or tok.map is None:
+            continue
+        end = tok.map[1]
+        last_line = lines[end - 1] if 0 <= end - 1 < len(lines) else ""
+        if not _is_closing_line(last_line, tok.markup):
+            unclosed.add(tok.map[0] + 1)
+    return unclosed
+
+
 def heading_jump_lines(text: str) -> set[int]:
     """Lines of headings that skip a level — the true MDS02 set.
 

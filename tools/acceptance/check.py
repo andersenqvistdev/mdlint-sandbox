@@ -125,6 +125,14 @@ def compare(path: Path, violations: list[dict]) -> list[str]:
     for target in sorted(expected - actual):
         record("MDL02", "false_negative", f"link to {target!r} has no visible text")
 
+    # R5 - MDF02 must fire on exactly the fenced blocks with no matching closer.
+    expected = oracle.unclosed_fence_lines(text)
+    actual = _lines_for(violations, "MDF02")
+    for line in sorted(actual - expected):
+        record("MDF02", "false_positive", f"line {line} opens a fence that is closed")
+    for line in sorted(expected - actual):
+        record("MDF02", "false_negative", f"line {line} opens a fence with no closer")
+
     return out
 
 
