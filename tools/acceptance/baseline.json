@@ -1,8 +1,5 @@
 [
   "tools/acceptance/corpus/closing_fence_info.md | MDF01 | false_negative | line 9 opens a fence with no language",
   "tools/acceptance/corpus/closing_fence_info.md | MDF01 | false_positive | line 11 is not an undeclared fence opening",
-  "tools/acceptance/corpus/closing_fence_info.md | MDF01 | false_positive | line 7 is not an undeclared fence opening",
-  "tools/acceptance/corpus/setext_headings.md | MDS01 | false_positive | document's first heading is a level-1 heading",
-  "tools/acceptance/corpus/setext_jump.md | MDS01 | false_positive | document's first heading is a level-1 heading",
-  "tools/acceptance/corpus/setext_jump.md | MDS02 | false_negative | line 4 skips a heading level"
+  "tools/acceptance/corpus/closing_fence_info.md | MDF01 | false_positive | line 7 is not an undeclared fence opening"
 ]
