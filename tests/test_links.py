@@ -62,6 +62,12 @@ def test_drops_optional_link_title():
     assert links == [Link(text="docs", target="guide.md", line=1, is_image=False)]
 
 
+def test_link_text_containing_code_span_is_not_blanked():
+    links = list(iter_links(["See [`docs/rules.md`](docs/rules.md) for more."]))
+
+    assert links == [Link(text="`docs/rules.md`", target="docs/rules.md", line=1, is_image=False)]
+
+
 def test_mask_code_spans_leaves_unclosed_backtick_runs_untouched():
     line = "`a ``b"
 
