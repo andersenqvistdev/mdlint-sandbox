@@ -1,8 +1,17 @@
 """Tests for the mdlint command-line entry point."""
 
 import json
+import os
+import sys
+
+import pytest
 
 from mdlint.cli import main
+
+needs_unix_perms = pytest.mark.skipif(
+    sys.platform == "win32" or os.geteuid() == 0,
+    reason="permission bits are not enforceable on Windows or as root",
+)
 
 
 def test_clean_file_exits_zero_with_no_output(tmp_path, capsys):
@@ -67,6 +76,78 @@ def test_read_error_takes_priority_over_violations(tmp_path, capsys):
     assert exit_code == 2
     assert str(missing) in captured.err
     assert f"{dirty}:1: MDS01" in captured.out
+
+
+def test_directory_passed_as_file_exits_two_with_stderr_message(tmp_path, capsys):
+    a_directory = tmp_path / "not-a-file"
+    a_directory.mkdir()
+
+    exit_code = main([str(a_directory)])
+
+    captured = capsys.readouterr()
+    assert exit_code == 2
+    assert str(a_directory) in captured.err
+    assert captured.out == ""
+
+
+@needs_unix_perms
+def test_unreadable_file_exits_two_with_stderr_message(tmp_path, capsys):
+    unreadable = tmp_path / "secret.md"
+    unreadable.write_text("# Title\n")
+    unreadable.chmod(0o000)
+
+    try:
+        exit_code = main([str(unreadable)])
+    finally:
+        unreadable.chmod(0o644)
+
+    captured = capsys.readouterr()
+    assert exit_code == 2
+    assert str(unreadable) in captured.err
+    assert captured.out == ""
+
+
+@needs_unix_perms
+def test_unreadable_file_does_not_stop_remaining_files_from_being_linted(tmp_path, capsys):
+    unreadable = tmp_path / "secret.md"
+    unreadable.write_text("# Title\n")
+    unreadable.chmod(0o000)
+    dirty = tmp_path / "dirty.md"
+    dirty.write_text("Not a heading\n")
+
+    try:
+        exit_code = main([str(unreadable), str(dirty)])
+    finally:
+        unreadable.chmod(0o644)
+
+    captured = capsys.readouterr()
+    assert exit_code == 2
+    assert str(unreadable) in captured.err
+    assert f"{dirty}:1: MDS01" in captured.out
+
+
+@needs_unix_perms
+def test_fix_continues_past_an_unwritable_file(tmp_path, capsys):
+    unwritable = tmp_path / "doc.md"
+    unwritable.write_text("Not a heading\n\n- one\n* two\n")
+    unwritable.chmod(0o400)
+    dirty = tmp_path / "dirty.md"
+    dirty.write_text("Not a heading\n\n- one\n* two\n")
+
+    try:
+        exit_code = main(["--fix", str(unwritable), str(dirty)])
+    finally:
+        unwritable.chmod(0o600)
+
+    captured = capsys.readouterr()
+    assert exit_code == 2
+    assert str(unwritable) in captured.err
+    # The remaining file must still be fixed, proving the run didn't abort.
+    assert dirty.read_text() == "Not a heading\n\n- one\n- two\n"
+    # The write failed, so the file on disk is still unfixed: it must be
+    # linted against its real (unfixed) content, not silently dropped.
+    assert unwritable.read_text() == "Not a heading\n\n- one\n* two\n"
+    assert f"{unwritable}:1: MDS01" in captured.out
 
 
 def test_exact_output_line_format(tmp_path, capsys):

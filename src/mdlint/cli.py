@@ -11,7 +11,7 @@ from mdlint.engine import apply_fixes, lint_lines
 from mdlint.rules import Rule, all_rules
 from mdlint.violation import Violation
 
-READ_ERRORS = (FileNotFoundError, IsADirectoryError, PermissionError, UnicodeDecodeError)
+READ_ERRORS = (OSError, UnicodeDecodeError)
 
 DEFAULT_CONFIG_NAME = ".mdlintrc"
 
@@ -94,11 +94,20 @@ def main(argv: list[str] | None = None) -> int:
         if args.fix:
             fixed_lines = apply_fixes(lines, rules)
             if fixed_lines != lines:
-                # lines came from split("\n"), so a trailing empty element
-                # already represents the file's final newline; joining alone
-                # reconstructs the exact text without adding another one.
-                Path(file).write_text("\n".join(fixed_lines), encoding="utf-8")
-            lines = fixed_lines
+                try:
+                    # lines came from split("\n"), so a trailing empty element
+                    # already represents the file's final newline; joining
+                    # alone reconstructs the exact text without adding another one.
+                    Path(file).write_text("\n".join(fixed_lines), encoding="utf-8")
+                except OSError as err:
+                    print(f"mdlint: {file}: {err}", file=sys.stderr)
+                    had_errors = True
+                    errors.append({"file": file, "message": str(err)})
+                    # The write failed, so the file on disk still has its
+                    # original content: lint against `lines`, not
+                    # `fixed_lines`, so the report matches what's really there.
+                else:
+                    lines = fixed_lines
 
         violations = lint_lines(file, lines, rules)
         if violations:
