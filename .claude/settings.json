@@ -4,7 +4,7 @@
   "alwaysThinkingEnabled": true,
   "statusLine": {
     "type": "command",
-    "command": "cd \"$(git rev-parse --show-toplevel 2>/dev/null || pwd)\" && .claude/status_lines/context_status.sh"
+    "command": "cd \"${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}\" && .claude/status_lines/context_status.sh"
   },
   "permissions": {
     "allow": [
@@ -183,7 +183,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "cd \"$(git rev-parse --show-toplevel 2>/dev/null || pwd)\" && uv run .claude/hooks/block_dangerous.py"
+            "command": "cd \"${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}\" && uv run .claude/hooks/block_dangerous.py"
           }
         ]
       },
@@ -192,7 +192,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "cd \"$(git rev-parse --show-toplevel 2>/dev/null || pwd)\" && uv run .claude/hooks/lint_on_edit.py"
+            "command": "cd \"${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}\" && uv run .claude/hooks/lint_on_edit.py"
           }
         ]
       },
@@ -201,7 +201,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "cd \"$(git rev-parse --show-toplevel 2>/dev/null || pwd)\" && uv run .claude/hooks/secrets_scanner.py"
+            "command": "cd \"${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}\" && uv run .claude/hooks/secrets_scanner.py"
           }
         ]
       },
@@ -210,7 +210,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "cd \"$(git rev-parse --show-toplevel 2>/dev/null || pwd)\" && uv run .claude/hooks/git_guardian.py"
+            "command": "cd \"${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}\" && uv run .claude/hooks/git_guardian.py"
           }
         ]
       },
@@ -219,7 +219,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "cd \"$(git rev-parse --show-toplevel 2>/dev/null || pwd)\" && uv run .claude/hooks/forge_license.py"
+            "command": "cd \"${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}\" && uv run .claude/hooks/forge_license.py"
           }
         ]
       }
@@ -230,7 +230,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "cd \"$(git rev-parse --show-toplevel 2>/dev/null || pwd)\" && uv run .claude/hooks/log_activity.py"
+            "command": "cd \"${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}\" && uv run .claude/hooks/log_activity.py"
           }
         ]
       },
@@ -239,7 +239,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "cd \"$(git rev-parse --show-toplevel 2>/dev/null || pwd)\" && uv run .claude/hooks/validate_quality.py"
+            "command": "cd \"${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}\" && uv run .claude/hooks/validate_quality.py"
           }
         ]
       },
@@ -248,7 +248,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "cd \"$(git rev-parse --show-toplevel 2>/dev/null || pwd)\" && uv run .claude/hooks/dependency_check.py"
+            "command": "cd \"${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}\" && uv run .claude/hooks/dependency_check.py"
           }
         ]
       },
@@ -257,7 +257,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "cd \"$(git rev-parse --show-toplevel 2>/dev/null || pwd)\" && uv run .claude/hooks/context_monitor.py"
+            "command": "cd \"${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}\" && uv run .claude/hooks/context_monitor.py"
           }
         ]
       }
@@ -268,7 +268,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "cd \"$(git rev-parse --show-toplevel 2>/dev/null || pwd)\" && uv run .claude/hooks/prompt_guard.py"
+            "command": "cd \"${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}\" && uv run .claude/hooks/prompt_guard.py"
           }
         ]
       }
@@ -279,7 +279,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "cd \"$(git rev-parse --show-toplevel 2>/dev/null || pwd)\" && uv run .claude/hooks/stop_validator.py"
+            "command": "cd \"${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}\" && uv run .claude/hooks/stop_validator.py"
           }
         ]
       }
@@ -290,7 +290,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "cd \"$(git rev-parse --show-toplevel 2>/dev/null || pwd)\" && uv run .claude/hooks/subagent_validator.py"
+            "command": "cd \"${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}\" && uv run .claude/hooks/subagent_validator.py"
           }
         ]
       }
@@ -301,7 +301,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "cd \"$(git rev-parse --show-toplevel 2>/dev/null || pwd)\" && uv run .claude/hooks/session_init.py"
+            "command": "cd \"${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}\" && uv run .claude/hooks/session_init.py"
           }
         ]
       }
@@ -312,7 +312,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "cd \"$(git rev-parse --show-toplevel 2>/dev/null || pwd)\" && uv run .claude/hooks/pre_compact_backup.py"
+            "command": "cd \"${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}\" && uv run .claude/hooks/pre_compact_backup.py"
           }
         ]
       }
@@ -323,7 +323,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "cd \"$(git rev-parse --show-toplevel 2>/dev/null || pwd)\" && uv run .claude/hooks/notify.py"
+            "command": "cd \"${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}\" && uv run .claude/hooks/notify.py"
           }
         ]
       }
@@ -334,7 +334,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "cd \"$(git rev-parse --show-toplevel 2>/dev/null || pwd)\" && uv run .claude/hooks/permission_auto.py"
+            "command": "cd \"${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}\" && uv run .claude/hooks/permission_auto.py"
           }
         ]
       }
