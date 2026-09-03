@@ -1,6 +1,15 @@
 """Tests for MDT01 — unordered list markers must be consistent."""
 
+import mdlint.rules.md_t01_consistent_unordered_markers as md_t01_module
 from mdlint.rules.md_t01_consistent_unordered_markers import RULE_ID, check, fix
+
+
+def test_fix_skips_an_item_whose_marker_span_cannot_be_located(monkeypatch):
+    """Guards the defensive branch in fix() against a stale/mismatched span helper."""
+    lines = ["- one", "* two"]
+    monkeypatch.setattr(md_t01_module, "unordered_marker_span", lambda line: None)
+
+    assert fix(lines) == lines
 
 
 def test_passes_when_all_items_use_the_same_marker():
