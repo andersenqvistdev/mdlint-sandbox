@@ -482,3 +482,39 @@ def test_fix_and_format_json_report_remaining_violations_after_fixing(tmp_path, 
             "message": "first line should be a top-level (H1) heading",
         }
     ]
+
+
+def test_fix_config_format_and_ignore_flags_all_combine_correctly(tmp_path, capsys):
+    kept = tmp_path / "doc.md"
+    kept.write_text("# Title\n\n- one\n* two\n")
+    ignored = tmp_path / "vendor.md"
+    ignored.write_text("Not a heading\n\n- one\n* two\n")
+    config = tmp_path / ".mdlintrc"
+    # MDS01 stays enabled so the doc's remaining violation still surfaces;
+    # MDT01 is left out so its autofix must not run on either file.
+    config.write_text(json.dumps({"enabled": ["MDS01", "MDT01"]}))
+
+    exit_code = main(
+        [
+            "--fix",
+            "--format",
+            "json",
+            "--config",
+            str(config),
+            "--ignore",
+            "vendor.md",
+            str(kept),
+            str(ignored),
+        ]
+    )
+
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    assert exit_code == 0
+    # --ignore excluded vendor.md from every stage: it was neither fixed...
+    assert ignored.read_text() == "Not a heading\n\n- one\n* two\n"
+    # ...nor linted, so it contributes no violations despite being dirty.
+    assert payload == {"violations": [], "errors": []}
+    # The non-ignored file went through --fix with only the config-enabled
+    # rules (MDT01's "* two" -> "- two" fix ran; MDS01 had nothing to fix).
+    assert kept.read_text() == "# Title\n\n- one\n- two\n"
