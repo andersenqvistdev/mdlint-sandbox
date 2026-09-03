@@ -66,6 +66,13 @@ MUTANTS = [
         "replace": "if block.close_line is None:",
         "guards": "R5 - MDF02 must fire on exactly the fences with no matching closer",
     },
+    {
+        "name": "MDS03 duplicate test inverted",
+        "file": "mdlint/rules/md_s03_no_duplicate_siblings.py",
+        "find": "if heading.text in siblings:",
+        "replace": "if heading.text not in siblings:",
+        "guards": "R6 - MDS03 must fire on exactly the duplicate sibling headings",
+    },
 ]
 
 

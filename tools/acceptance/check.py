@@ -133,6 +133,14 @@ def compare(path: Path, violations: list[dict]) -> list[str]:
     for line in sorted(expected - actual):
         record("MDF02", "false_negative", f"line {line} opens a fence with no closer")
 
+    # R6 - MDS03 must fire on exactly the headings that repeat an earlier sibling.
+    expected = oracle.duplicate_sibling_lines(text)
+    actual = _lines_for(violations, "MDS03")
+    for line in sorted(actual - expected):
+        record("MDS03", "false_positive", f"line {line} is not a duplicate sibling heading")
+    for line in sorted(expected - actual):
+        record("MDS03", "false_negative", f"line {line} repeats an earlier sibling heading")
+
     return out
 
 
