@@ -65,6 +65,16 @@ def test_ignores_tilde_fenced_code():
     assert check("doc.md", lines) == []
 
 
+def test_ignores_a_spaced_thematic_break_and_does_not_rewrite_it():
+    """A '* * *' thematic break (CommonMark 4.1) is not a bullet item, even
+    though it also matches the bullet-marker pattern: marker '*', then
+    whitespace, then a non-space character ('*')."""
+    lines = ["- one", "* * *", "- three"]
+
+    assert check("doc.md", lines) == []
+    assert fix(lines) == lines
+
+
 def test_fix_rewrites_inconsistent_markers_to_match_the_first():
     lines = ["- one", "* two", "+ three"]
 

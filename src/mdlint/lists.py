@@ -11,6 +11,11 @@ from dataclasses import dataclass
 _FENCE_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
 _UNORDERED_RE = re.compile(r"^( {0,3})([-*+])(\s+)\S")
 _ORDERED_RE = re.compile(r"^( {0,3})(\d{1,9})([.)])(\s+)\S")
+# CommonMark thematic break (spec 4.1): 3+ of the same -, _, or * character,
+# optionally separated by spaces/tabs, and nothing else on the line. A
+# spaced form like "* * *" also matches _UNORDERED_RE, so this must be
+# checked first or "* * *" is misread as a bullet item with content "* *".
+_THEMATIC_BREAK_RE = re.compile(r"^ {0,3}([-*_])(?:[ \t]*\1){2,}[ \t]*$")
 
 
 @dataclass(frozen=True)
@@ -44,6 +49,8 @@ def iter_unordered_list_items(lines: list[str]) -> Iterator[UnorderedListItem]:
             fence_char = None if fence_char == marker_char else marker_char
             continue
         if fence_char is not None:
+            continue
+        if _THEMATIC_BREAK_RE.match(raw_line):
             continue
         match = _UNORDERED_RE.match(raw_line)
         if not match:
