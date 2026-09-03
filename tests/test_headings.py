@@ -57,6 +57,18 @@ def test_shorter_fence_does_not_close_a_longer_opening_fence():
     ]
 
 
+def test_closing_fence_with_an_info_string_does_not_close_the_fence():
+    # CommonMark requires a closing fence to carry no info string; a line
+    # like "```bash" after an already-open fence is just more fence content,
+    # not a valid closer, so "### C" stays hidden inside the (still-open)
+    # fence rather than surfacing as a heading.
+    lines = ["# A", "```", "bash", "```bash", "### C"]
+
+    headings = list(iter_headings(lines))
+
+    assert headings == [Heading(level=1, text="A", line=1)]
+
+
 def test_mismatched_fence_character_does_not_close_the_fence():
     lines = ["# Title", "```", "# not a heading", "~~~", "# still not a heading", "```", "## Real"]
 
