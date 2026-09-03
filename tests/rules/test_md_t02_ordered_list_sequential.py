@@ -66,6 +66,12 @@ def test_ignores_ordered_items_inside_fenced_code_blocks():
     assert check("doc.md", lines) == []
 
 
+def test_ignores_ordered_items_inside_tilde_fenced_code_blocks():
+    lines = ["1. one", "~~~", "5. not real", "~~~", "2. two"]
+
+    assert check("doc.md", lines) == []
+
+
 def test_fix_renumbers_a_skipped_item():
     lines = ["1. one", "2. two", "4. four"]
 

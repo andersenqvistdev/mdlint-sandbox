@@ -91,6 +91,18 @@ def test_ignores_tables_inside_fenced_code_blocks():
     assert check("doc.md", lines) == []
 
 
+def test_ignores_tables_inside_tilde_fenced_code_blocks():
+    lines = [
+        "~~~",
+        "| A | B |",
+        "| --- | --- |",
+        "| 1 | 2 | 3 |",
+        "~~~",
+    ]
+
+    assert check("doc.md", lines) == []
+
+
 def test_escaped_pipe_inside_a_cell_is_not_a_column_separator():
     lines = [
         "| A | B |",
