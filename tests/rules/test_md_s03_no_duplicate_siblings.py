@@ -64,3 +64,18 @@ def test_flags_every_repeat_beyond_the_first_occurrence():
     violations = check("doc.md", lines)
 
     assert [v.line for v in violations] == [3, 4]
+
+
+def test_fails_for_duplicate_setext_siblings():
+    lines = ["Title", "=====", "", "Alpha", "-----", "", "Alpha", "-----"]
+
+    violations = check("doc.md", lines)
+
+    assert len(violations) == 1
+    assert violations[0].line == 7
+
+
+def test_passes_for_setext_and_atx_headings_with_different_text():
+    lines = ["Title", "=====", "", "## Alpha", "", "Beta", "-----"]
+
+    assert check("doc.md", lines) == []
