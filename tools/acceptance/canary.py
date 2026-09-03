@@ -59,6 +59,13 @@ MUTANTS = [
         "replace": "if marker == open_marker:",
         "guards": "R1 - fence pairing must match CommonMark",
     },
+    {
+        "name": "MDF02 closed test inverted",
+        "file": "mdlint/rules/md_f02_fence_closed.py",
+        "find": "if block.close_line is not None:",
+        "replace": "if block.close_line is None:",
+        "guards": "R5 - MDF02 must fire on exactly the fences with no matching closer",
+    },
 ]
 
 
