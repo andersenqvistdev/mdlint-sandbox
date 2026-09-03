@@ -34,6 +34,10 @@ def test_ignores_bare_thematic_breaks():
     assert list(iter_unordered_list_items(["---", "***", "___"])) == []
 
 
+def test_ignores_spaced_thematic_breaks():
+    assert list(iter_unordered_list_items(["* * *", "- - -", "_ _ _"])) == []
+
+
 def test_ignores_unordered_items_inside_fenced_code_blocks():
     lines = ["- real", "```", "- not real", "```", "- also real"]
 
