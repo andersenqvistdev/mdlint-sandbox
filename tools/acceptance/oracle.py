@@ -54,12 +54,17 @@ def headings(text: str) -> list[dict]:
 
     Setext headings are the reason this exists: they are ordinary CommonMark and
     a linter that cannot see them will both invent violations and miss real ones.
+    ``text`` is the rendered inline content (markup stripped), the same shape of
+    "what a reader actually sees" that ``_plain_text`` produces for link text.
     """
+    tokens = _tokens(text)
     out = []
-    for tok in _tokens(text):
+    for i, tok in enumerate(tokens):
         if tok.type != "heading_open" or tok.map is None:
             continue
-        out.append({"line": tok.map[0] + 1, "level": int(tok.tag[1:])})
+        inline = tokens[i + 1] if i + 1 < len(tokens) else None
+        content = _plain_text(inline.children or []) if inline and inline.type == "inline" else ""
+        out.append({"line": tok.map[0] + 1, "level": int(tok.tag[1:]), "text": content.strip()})
     return out
 
 
@@ -167,6 +172,27 @@ def heading_jump_lines(text: str) -> set[int]:
             jumps.add(head["line"])
         previous = head["level"]
     return jumps
+
+
+def duplicate_sibling_lines(text: str) -> set[int]:
+    """Lines of headings that repeat an earlier sibling's text — the true MDS03 set.
+
+    A sibling is a heading at the same level under the same chain of ancestors;
+    the same text under a different parent is unrelated and not a duplicate.
+    """
+    duplicates = set()
+    ancestors: list[tuple[int, str]] = []
+    children_seen: dict[tuple[tuple[int, str], ...], set[str]] = {}
+    for head in headings(text):
+        while ancestors and ancestors[-1][0] >= head["level"]:
+            ancestors.pop()
+        siblings = children_seen.setdefault(tuple(ancestors), set())
+        if head["text"] in siblings:
+            duplicates.add(head["line"])
+        else:
+            siblings.add(head["text"])
+        ancestors.append((head["level"], head["text"]))
+    return duplicates
 
 
 def starts_with_h1(text: str) -> bool:
