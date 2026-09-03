@@ -1,7 +1,6 @@
 """Command-line entry point for mdlint."""
 
 import argparse
-import fnmatch
 import json
 import sys
 from pathlib import Path
@@ -36,11 +35,15 @@ def _resolve_rules(config_path: Path) -> list[Rule]:
 
 
 def _is_ignored(file: str, patterns: list[str]) -> bool:
-    """Return True if file matches any --ignore glob pattern."""
-    name = Path(file).name
-    return any(
-        fnmatch.fnmatch(file, pattern) or fnmatch.fnmatch(name, pattern) for pattern in patterns
-    )
+    """Return True if file matches any --ignore glob pattern.
+
+    Uses PurePath.match, which compares from the right: a pattern like
+    "vendor/*" matches "vendor/dirty.md" whether the file argument is
+    relative or absolute (e.g. from shell glob expansion), since only the
+    pattern's own component count is compared against the path's tail.
+    """
+    path = Path(file)
+    return any(path.match(pattern) for pattern in patterns)
 
 
 def _print_text(violations: list[Violation]) -> None:

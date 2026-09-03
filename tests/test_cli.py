@@ -286,6 +286,23 @@ def test_ignore_glob_pattern_matches_full_path_in_subdirectory(tmp_path, capsys,
     assert captured.out == ""
 
 
+def test_ignore_glob_pattern_matches_absolute_path_in_subdirectory(tmp_path, capsys):
+    vendor = tmp_path / "vendor"
+    vendor.mkdir()
+    dirty = vendor / "dirty.md"
+    dirty.write_text("Not a heading\n")
+
+    # The file argument is absolute (as it would be from shell glob
+    # expansion), while the ignore pattern is a relative "dir/pattern"
+    # pair. Matching must compare from the right, not by literal string
+    # equality, or absolute-path invocations would bypass --ignore.
+    exit_code = main(["--ignore", "vendor/*", str(dirty)])
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert captured.out == ""
+
+
 def test_multiple_ignore_flags_each_skip_their_matching_file(tmp_path, capsys):
     changelog = tmp_path / "CHANGELOG.md"
     changelog.write_text("Not a heading\n")
