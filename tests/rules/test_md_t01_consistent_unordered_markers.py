@@ -59,6 +59,12 @@ def test_ignores_thematic_breaks_and_fenced_code():
     assert check("doc.md", lines) == []
 
 
+def test_ignores_tilde_fenced_code():
+    lines = ["- one", "~~~", "* two", "~~~", "- three"]
+
+    assert check("doc.md", lines) == []
+
+
 def test_fix_rewrites_inconsistent_markers_to_match_the_first():
     lines = ["- one", "* two", "+ three"]
 
