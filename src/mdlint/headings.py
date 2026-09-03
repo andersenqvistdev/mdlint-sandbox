@@ -5,17 +5,34 @@ inside a ``` fence isn't mistaken for a heading. Setext headings (a line of
 title text immediately followed by a line of only ``=`` or ``-`` characters)
 are also recognized, following CommonMark's rules for what does and doesn't
 count as a valid underline.
+
+Fence boundaries are detected via :func:`mdlint.fences.iter_fence_blocks`
+rather than a second, ad-hoc regex scan here — an earlier local
+implementation closed a fence on any same-marker line long enough,
+regardless of trailing content, which let a line like ` ```python ` (info
+string on what should be an unadorned closer) wrongly close a fence and
+exposed the "headings" hidden inside it.
 """
 
 import re
 from collections.abc import Iterator
 from dataclasses import dataclass
 
-_FENCE_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
+from mdlint.fences import iter_fence_blocks
+
 _ATX_RE = re.compile(r"^ {0,3}(#{1,6})(?:\s+(.*))?$")
 _TRAILING_HASHES_RE = re.compile(r"(?:^|\s)#+\s*$")
 _SETEXT_UNDERLINE_RE = re.compile(r"^ {0,3}(=+|-+)[ \t]*$")
 _LIST_ITEM_RE = re.compile(r"^ {0,3}([-*+]|\d{1,9}[.)])(\s+)\S")
+
+
+def _fenced_line_numbers(lines: list[str]) -> set[int]:
+    """Return every 1-based line number that falls inside a fenced code block."""
+    fenced: set[int] = set()
+    for block in iter_fence_blocks(lines):
+        end = block.close_line if block.close_line is not None else len(lines)
+        fenced.update(range(block.open_line, end + 1))
+    return fenced
 
 
 @dataclass(frozen=True)
@@ -29,22 +46,13 @@ class Heading:
 
 def iter_headings(lines: list[str]) -> Iterator[Heading]:
     """Yield a Heading for each ATX or setext heading in lines, in document order."""
-    fence_char: str | None = None
-    fence_len = 0
+    fenced_lines = _fenced_line_numbers(lines)
     paragraph_start: int | None = None
     paragraph_texts: list[str] = []
     for lineno, raw_line in enumerate(lines, start=1):
-        fence_match = _FENCE_RE.match(raw_line)
-        if fence_match:
-            marker = fence_match.group(1)
-            if fence_char is None:
-                paragraph_start = None
-                paragraph_texts = []
-                fence_char, fence_len = marker[0], len(marker)
-            elif marker[0] == fence_char and len(marker) >= fence_len:
-                fence_char = None
-            continue
-        if fence_char is not None:
+        if lineno in fenced_lines:
+            paragraph_start = None
+            paragraph_texts = []
             continue
         heading_match = _ATX_RE.match(raw_line)
         if heading_match:
