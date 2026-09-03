@@ -115,6 +115,22 @@ def test_fails_on_original_first_line_when_front_matter_is_unterminated():
     assert violations[0].line == 1
 
 
+def test_passes_when_first_line_is_a_setext_h1():
+    lines = ["Title", "=====", "body"]
+
+    assert check("doc.md", lines) == []
+
+
+def test_fails_when_first_line_is_a_setext_h2():
+    # A setext underline of "-" produces an H2, not the required top-level H1.
+    lines = ["Title", "-----", "body"]
+
+    violations = check("doc.md", lines)
+
+    assert len(violations) == 1
+    assert violations[0].line == 1
+
+
 def test_front_matter_delimiter_must_be_the_literal_first_line():
     # A "---" that only appears after leading blank lines is not front
     # matter (Jekyll/Hugo require it to open the file) and is correctly

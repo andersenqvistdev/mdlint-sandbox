@@ -45,3 +45,18 @@ def test_ignores_skipped_levels_inside_fenced_code_blocks():
     lines = ["# Title", "```", "##### not a real heading", "```", "## Section"]
 
     assert check("doc.md", lines) == []
+
+
+def test_passes_for_setext_h1_followed_by_setext_h2():
+    lines = ["Title", "=====", "", "Section", "-------"]
+
+    assert check("doc.md", lines) == []
+
+
+def test_fails_when_setext_h1_is_followed_by_a_skipped_atx_level():
+    lines = ["Title", "=====", "", "### Too deep"]
+
+    violations = check("doc.md", lines)
+
+    assert len(violations) == 1
+    assert violations[0].line == 4
