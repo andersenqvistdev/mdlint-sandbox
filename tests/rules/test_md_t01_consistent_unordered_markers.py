@@ -53,6 +53,14 @@ def test_flags_a_nested_item_using_a_different_marker_than_the_top_level():
     assert violations[0].line == 2
 
 
+def test_ignores_a_four_space_indented_line_as_a_code_block_not_a_list_item():
+    """A 4+ space indent is an indented code block per CommonMark, not a
+    bullet item, even though the line still starts with a marker char."""
+    lines = ["- one", "    * not a list item, this is indented code"]
+
+    assert check("doc.md", lines) == []
+
+
 def test_ignores_thematic_breaks_and_fenced_code():
     lines = ["- one", "---", "```", "* two", "```", "- three"]
 
