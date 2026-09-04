@@ -10,6 +10,13 @@ check, a passing test, a failing test, and the row below — see
 `.company/vision.md` for the convention and `tests/rules/` for the tests
 backing each example.
 
+Rules marked **Autofix: yes** below have a safe, unambiguous fix and are
+rewritten in place by `mdlint --fix` (see the README's "Autofix" section).
+Every other rule only reports the violation; fix it by hand. Autofixable
+rules: [MDF03](#mdf03--consistent-fence-marker),
+[MDL03](#mdl03--no-bare-urls), [MDT01](#mdt01--consistent-unordered-markers),
+[MDT02](#mdt02--ordered-list-sequential).
+
 ## Structure (`MDS`)
 
 ### MDS01 — first-line-heading
@@ -228,6 +235,8 @@ Read the [](https://example.com/docs).
 
 ### MDL03 — no-bare-urls
 
+**Autofix: yes** — wraps a bare URL in `<>`.
+
 A raw URL outside of link syntax or a code span must be wrapped — either as
 an autolink (`<https://example.com>`) or a markdown link.
 
@@ -295,6 +304,9 @@ print("hello")
 
 ### MDF03 — consistent-fence-marker
 
+**Autofix: yes** — rewrites inconsistent fence markers to match the file's
+first one.
+
 The first fence character (backtick or tilde) encountered in a document sets
 the expected marker; every later fence opened with the other character is
 flagged.
@@ -329,6 +341,9 @@ two
 
 ### MDT01 — consistent-unordered-markers
 
+**Autofix: yes** — rewrites inconsistent bullet markers to match the file's
+first one.
+
 The first bullet marker (`-`, `*`, or `+`) encountered in a document sets
 the expected marker; every later bullet using a different marker is
 flagged, regardless of list or nesting level.
@@ -352,6 +367,8 @@ Failing:
 `docs/example.md:2: MDT01 list marker '*' is inconsistent; file uses '-'`
 
 ### MDT02 — ordered-list-sequential
+
+**Autofix: yes** — renumbers each list so it increases sequentially by one.
 
 Ordered list numbers must increase sequentially by one, tracked
 independently per indentation level. A list may start at any number, but
