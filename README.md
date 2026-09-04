@@ -82,7 +82,12 @@ mdlint --ignore "CHANGELOG.md" --ignore "vendor/*" docs/**/*.md
 
 `--ignore` matches against both the full path and the file's base name, so a
 bare filename pattern like `CHANGELOG.md` matches regardless of which
-directory it's passed in.
+directory it's passed in. Matching is done component-by-component from the
+right (`Path.match`), so `**` is *not* a recursive wildcard the way it is in
+shell globs or `.gitignore` — each `*` (including inside `**`) stands for
+exactly one path segment, so `docs/**/*.md` matches `docs/sub/file.md` but
+not the deeper `docs/sub/deep/file.md`. Use one `*` per path segment you
+want to skip, or add one `--ignore` per directory depth.
 
 ## Configuration
 

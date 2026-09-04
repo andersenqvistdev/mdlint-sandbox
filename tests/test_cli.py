@@ -303,6 +303,28 @@ def test_ignore_glob_pattern_matches_absolute_path_in_subdirectory(tmp_path, cap
     assert captured.out == ""
 
 
+def test_ignore_recursive_glob_does_not_match_across_multiple_directories(
+    tmp_path, capsys, monkeypatch
+):
+    nested = tmp_path / "docs" / "sub" / "deep"
+    nested.mkdir(parents=True)
+    dirty = nested / "dirty.md"
+    dirty.write_text("Not a heading\n")
+    monkeypatch.chdir(tmp_path)
+
+    # PurePath.match treats "**" as a literal single path segment, not a
+    # recursive-descent wildcard: one "**" only ever stands in for exactly
+    # one directory level, unlike shell or gitignore "**" semantics. So a
+    # two-level-deep file slips past a pattern written expecting arbitrary
+    # depth. This locks in that (surprising) current behavior so a match
+    # implementation swap doesn't silently start ignoring files it shouldn't.
+    exit_code = main(["--ignore", "docs/**/*.md", "docs/sub/deep/dirty.md"])
+
+    captured = capsys.readouterr()
+    assert exit_code == 1
+    assert "docs/sub/deep/dirty.md" in captured.out
+
+
 def test_multiple_ignore_flags_each_skip_their_matching_file(tmp_path, capsys):
     changelog = tmp_path / "CHANGELOG.md"
     changelog.write_text("Not a heading\n")
