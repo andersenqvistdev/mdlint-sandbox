@@ -150,6 +150,19 @@ def test_tab_between_marker_and_info_string_is_not_part_of_the_language():
     assert blocks == [FenceBlock(marker="`", length=3, info="python", open_line=1, close_line=3)]
 
 
+def test_closing_fence_indentation_is_independent_of_the_opening_fences():
+    """A closer's own indentation (0-3 spaces) is all that matters, per CommonMark.
+
+    The opening fence here has no indentation while its closer has two spaces;
+    the mismatch must not stop the closer from closing the block.
+    """
+    lines = ["```python", "code", "  ```"]
+
+    blocks = list(iter_fence_blocks(lines))
+
+    assert blocks == [FenceBlock(marker="`", length=3, info="python", open_line=1, close_line=3)]
+
+
 def test_fence_indented_by_four_or_more_spaces_is_not_a_fence():
     """Four spaces of indentation makes this an indented code block, not a fence.
 
