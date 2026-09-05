@@ -44,6 +44,12 @@ def test_tilde_fence_with_language_passes():
     assert check("doc.md", ["~~~python", "code", "~~~"]) == []
 
 
+def test_language_separated_from_marker_by_a_tab_passes():
+    lines = ["```\tpython", "code", "```"]
+
+    assert check("doc.md", lines) == []
+
+
 def test_indented_bare_fence_is_still_flagged():
     lines = ["  ```", "code", "  ```"]
 
