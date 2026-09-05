@@ -75,3 +75,24 @@ def test_mask_code_spans_leaves_unclosed_backtick_runs_untouched():
 
     assert masked == line
     assert len(masked) == len(line)
+
+
+def test_mask_code_spans_keeps_non_whitespace_content_non_blank():
+    line = "[`exists.md`](exists.md)"
+
+    masked = mask_code_spans(line)
+
+    assert len(masked) == len(line)
+    assert masked.strip("[]") != ""
+    text = masked[1 : masked.index("]")]
+    assert text.strip() != ""
+
+
+def test_mask_code_spans_still_hides_a_bare_url_inside_a_span():
+    line = "Run `curl https://example.com` now"
+
+    masked = mask_code_spans(line)
+
+    assert len(masked) == len(line)
+    assert "https://example.com" not in masked
+    assert "curl" not in masked

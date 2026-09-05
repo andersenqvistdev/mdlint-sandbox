@@ -83,3 +83,12 @@ def test_bare_scheme_followed_only_by_punctuation_still_flags_and_wraps():
     assert len(violations) == 1
     assert violations[0].message.startswith("bare URL 'https://'")
     assert fix(lines) == ["Broken link: <https://>)."]
+
+
+def test_reported_url_does_not_include_a_trailing_backtick():
+    lines = ["A backtick-adjacent URL: https://example.com`"]
+
+    violations = check("doc.md", lines)
+
+    assert violations[0].message.startswith("bare URL 'https://example.com'")
+    assert "`" not in violations[0].message.split("'")[1]
