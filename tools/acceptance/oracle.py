@@ -124,6 +124,20 @@ def undeclared_fence_lines(text: str) -> set[int]:
     return {b["line"] for b in fenced_blocks(text) if b["info"] == ""}
 
 
+def fence_marker_mismatches(text: str) -> set[int]:
+    """Opening lines of fences whose marker differs from the file's first fence.
+
+    The true MDF03 set. The first fence's character (backtick or tilde) sets
+    the document's expected marker; every later fence opened with the other
+    character is a mismatch.
+    """
+    blocks = fenced_blocks(text)
+    if not blocks:
+        return set()
+    expected = blocks[0]["marker"][0]
+    return {b["line"] for b in blocks[1:] if b["marker"][0] != expected}
+
+
 def _is_closing_line(line: str, marker: str) -> bool:
     """True when line is a valid CommonMark closer for a fence opened with marker.
 
