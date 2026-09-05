@@ -141,6 +141,15 @@ def compare(path: Path, violations: list[dict]) -> list[str]:
     for line in sorted(expected - actual):
         record("MDS03", "false_negative", f"line {line} repeats an earlier sibling heading")
 
+    # R7 - MDF03 must fire on exactly the fences whose marker differs from the
+    # file's first fence.
+    expected = oracle.fence_marker_mismatches(text)
+    actual = _lines_for(violations, "MDF03")
+    for line in sorted(actual - expected):
+        record("MDF03", "false_positive", f"line {line} fence marker matches the file's first")
+    for line in sorted(expected - actual):
+        record("MDF03", "false_negative", f"line {line} fence marker differs from the file's first")
+
     return out
 
 
