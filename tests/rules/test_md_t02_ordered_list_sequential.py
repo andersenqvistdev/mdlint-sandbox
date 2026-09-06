@@ -110,6 +110,43 @@ def test_fix_handles_nested_indents_independently():
     assert check("doc.md", fixed) == []
 
 
+def test_indented_continuation_paragraph_does_not_break_the_sequence():
+    lines = [
+        "1. First item.",
+        "",
+        "   Continuation paragraph for item 1.",
+        "",
+        "3. Should be 2.",
+    ]
+
+    violations = check("doc.md", lines)
+
+    assert len(violations) == 1
+    assert violations[0].line == 5
+    assert "expected 2" in violations[0].message
+
+
+def test_less_indented_content_still_resets_the_sequence():
+    lines = ["  1. one", "  2. two", "not indented enough to continue", "  1. new list"]
+
+    assert check("doc.md", lines) == []
+
+
+def test_fix_renumbers_across_an_indented_continuation_paragraph():
+    lines = [
+        "1. First item.",
+        "",
+        "   Continuation paragraph for item 1.",
+        "",
+        "3. Should be 2.",
+    ]
+
+    fixed = fix(lines)
+
+    assert fixed[-1] == "2. Should be 2."
+    assert check("doc.md", fixed) == []
+
+
 def test_fix_is_a_noop_when_already_sequential():
     lines = ["1. one", "2. two", "3. three"]
 
