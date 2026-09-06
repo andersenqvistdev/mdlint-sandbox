@@ -9,10 +9,12 @@ a matching docs update. These tests fail CI the moment that happens.
 import re
 from pathlib import Path
 
+from mdlint.cli import build_parser
 from mdlint.rules import all_rules
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 RULE_HEADING_RE = re.compile(r"^### (MD[A-Z]\d{2}) ", re.MULTILINE)
+OPTIONS_FLAG_RE = re.compile(r"^\| `(--[a-z-]+)", re.MULTILINE)
 
 
 def _rules_doc_text() -> str:
@@ -79,4 +81,36 @@ def test_readme_rule_count_matches_registry():
 
     assert f"{count} rules" in readme, (
         f"README claims a stale rule count; registry has {count} rules"
+    )
+
+
+def _readme_options_table_flags() -> set[str]:
+    readme = (REPO_ROOT / "README.md").read_text()
+    section = readme.split("### Options", 1)[1].split("\n### ", 1)[0]
+    return {match.group(1) for match in OPTIONS_FLAG_RE.finditer(section)}
+
+
+def _parser_flags() -> set[str]:
+    flags = set()
+    for action in build_parser()._actions:
+        flags.update(s for s in action.option_strings if s.startswith("--"))
+    return flags - {"--help"}
+
+
+def test_every_cli_flag_is_documented_in_readme():
+    documented = _readme_options_table_flags()
+    actual = _parser_flags()
+
+    assert actual <= documented, (
+        f"CLI flags missing from README's Options table: {sorted(actual - documented)}"
+    )
+
+
+def test_readme_options_table_does_not_reference_removed_flags():
+    documented = _readme_options_table_flags()
+    actual = _parser_flags()
+
+    assert documented <= actual, (
+        f"README's Options table documents flags mdlint no longer accepts: "
+        f"{sorted(documented - actual)}"
     )
