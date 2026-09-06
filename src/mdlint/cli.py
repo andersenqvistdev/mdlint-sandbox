@@ -46,6 +46,22 @@ def _is_ignored(file: str, patterns: list[str]) -> bool:
     return any(path.match(pattern) for pattern in patterns)
 
 
+def _check_ignore_patterns(patterns: list[str]) -> str | None:
+    """Return an error message if any --ignore pattern is malformed, else None.
+
+    Path.match raises ValueError on a pattern it can't parse (e.g. an empty
+    string). Validated up front against a throwaway path, so a bad pattern
+    is reported as a clean CLI error instead of crashing mid-run partway
+    through the file list.
+    """
+    for pattern in patterns:
+        try:
+            Path("x").match(pattern)
+        except ValueError as err:
+            return f'invalid --ignore pattern "{pattern}": {err}'
+    return None
+
+
 def _print_text(violations: list[Violation]) -> None:
     for violation in violations:
         print(f"{violation.file}:{violation.line}: {violation.rule_id} {violation.message}")
@@ -82,6 +98,11 @@ def main(argv: list[str] | None = None) -> int:
         rules = _resolve_rules(Path(args.config))
     except ConfigError as err:
         print(f"mdlint: {err}", file=sys.stderr)
+        return 2
+
+    ignore_error = _check_ignore_patterns(args.ignore)
+    if ignore_error is not None:
+        print(f"mdlint: {ignore_error}", file=sys.stderr)
         return 2
 
     had_violations = False
