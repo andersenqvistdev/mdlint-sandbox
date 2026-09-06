@@ -325,6 +325,20 @@ def test_ignore_recursive_glob_does_not_match_across_multiple_directories(
     assert "docs/sub/deep/dirty.md" in captured.out
 
 
+def test_ignore_with_empty_pattern_exits_two_instead_of_crashing(tmp_path, capsys):
+    doc = tmp_path / "doc.md"
+    doc.write_text("# Title\n")
+
+    # Path.match("") raises ValueError; this must surface as a clean CLI
+    # error, not an unhandled traceback.
+    exit_code = main(["--ignore", "", str(doc)])
+
+    captured = capsys.readouterr()
+    assert exit_code == 2
+    assert "invalid --ignore pattern" in captured.err
+    assert captured.out == ""
+
+
 def test_multiple_ignore_flags_each_skip_their_matching_file(tmp_path, capsys):
     changelog = tmp_path / "CHANGELOG.md"
     changelog.write_text("Not a heading\n")
