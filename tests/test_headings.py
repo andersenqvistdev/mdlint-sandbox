@@ -142,3 +142,47 @@ def test_list_item_after_paragraph_text_is_not_treated_as_underline():
     headings = list(iter_headings(lines))
 
     assert headings == []
+
+
+def test_yaml_front_matter_closing_delimiter_is_not_a_phantom_setext_heading():
+    # Without front-matter awareness, the closing "---" reads as a setext
+    # underline for "tags: [a, b]", yielding a bogus H2 that confuses
+    # MDS02 (a false level to jump from) and MDS03 (a false sibling).
+    lines = ["---", "title: Example", "tags: [a, b]", "---", "", "# Title"]
+
+    headings = list(iter_headings(lines))
+
+    assert headings == [Heading(level=1, text="Title", line=6)]
+
+
+def test_toml_front_matter_closing_delimiter_is_not_a_phantom_setext_heading():
+    lines = ["+++", 'title = "Example"', "+++", "# Title"]
+
+    headings = list(iter_headings(lines))
+
+    assert headings == [Heading(level=1, text="Title", line=4)]
+
+
+def test_unterminated_front_matter_is_scanned_normally():
+    # No closing "---" — this isn't front matter, so its lines are still
+    # scanned like any other content.
+    lines = ["---", "title: Example", "# Title"]
+
+    headings = list(iter_headings(lines))
+
+    assert headings == [Heading(level=1, text="Title", line=3)]
+
+
+def test_front_matter_delimiter_must_be_the_literal_first_line():
+    # A "---" preceded by a blank line doesn't qualify as front matter
+    # (Jekyll/Hugo require it to open the file), so its "---" lines are
+    # scanned normally — including the closing delimiter reading as a
+    # setext underline for the preceding text, same as any other document.
+    lines = ["", "---", "title: Example", "---", "# Title"]
+
+    headings = list(iter_headings(lines))
+
+    assert headings == [
+        Heading(level=2, text="title: Example", line=3),
+        Heading(level=1, text="Title", line=5),
+    ]

@@ -12,6 +12,12 @@ implementation closed a fence on any same-marker line long enough,
 regardless of trailing content, which let a line like ` ```python ` (info
 string on what should be an unadorned closer) wrongly close a fence and
 exposed the "headings" hidden inside it.
+
+A leading front-matter block is skipped for the same reason: without it, the
+closing ``---``/``+++`` delimiter reads as a setext underline for whatever
+front-matter line precedes it, yielding a phantom heading that confuses
+MDS02 (a bogus level to jump from) and MDS03 (a bogus sibling to collide
+with).
 """
 
 import re
@@ -24,6 +30,23 @@ _ATX_RE = re.compile(r"^ {0,3}(#{1,6})(?:\s+(.*))?$")
 _TRAILING_HASHES_RE = re.compile(r"(?:^|\s)#+\s*$")
 _SETEXT_UNDERLINE_RE = re.compile(r"^ {0,3}(=+|-+)[ \t]*$")
 _LIST_ITEM_RE = re.compile(r"^ {0,3}([-*+]|\d{1,9}[.)])(\s+)\S")
+_FRONT_MATTER_DELIMS = ("---", "+++")
+
+
+def front_matter_end(lines: list[str]) -> int:
+    """Return the index following a leading front-matter block, else 0.
+
+    YAML (``---``) and TOML (``+++``) front matter must open on the
+    document's literal first line to count; an unterminated block is left
+    alone (returns 0) so its lines are still scanned normally.
+    """
+    if not lines:
+        return 0
+    delim = lines[0].strip()
+    if delim not in _FRONT_MATTER_DELIMS:
+        return 0
+    closing = next((i for i in range(1, len(lines)) if lines[i].strip() == delim), None)
+    return closing + 1 if closing is not None else 0
 
 
 def _fenced_line_numbers(lines: list[str]) -> set[int]:
@@ -47,10 +70,11 @@ class Heading:
 def iter_headings(lines: list[str]) -> Iterator[Heading]:
     """Yield a Heading for each ATX or setext heading in lines, in document order."""
     fenced_lines = _fenced_line_numbers(lines)
+    skip_through = front_matter_end(lines)
     paragraph_start: int | None = None
     paragraph_texts: list[str] = []
     for lineno, raw_line in enumerate(lines, start=1):
-        if lineno in fenced_lines:
+        if lineno <= skip_through or lineno in fenced_lines:
             paragraph_start = None
             paragraph_texts = []
             continue
