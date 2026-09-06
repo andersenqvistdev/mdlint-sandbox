@@ -51,8 +51,13 @@ def _print_text(violations: list[Violation]) -> None:
         print(f"{violation.file}:{violation.line}: {violation.rule_id} {violation.message}")
 
 
-def main(argv: list[str] | None = None) -> int:
-    """Lint the given files and print violations, returning the process exit code."""
+def build_parser() -> argparse.ArgumentParser:
+    """Build the mdlint argument parser.
+
+    Exposed separately from ``main`` so tests can introspect the registered
+    flags and check them against README's documented options without
+    duplicating the flag list by hand.
+    """
     parser = argparse.ArgumentParser(prog="mdlint")
     parser.add_argument("files", nargs="+")
     parser.add_argument("--fix", action="store_true", help="apply safe autofixes in place")
@@ -66,7 +71,12 @@ def main(argv: list[str] | None = None) -> int:
         metavar="PATH",
         help=f"path to config file (default: {DEFAULT_CONFIG_NAME} in the current directory)",
     )
-    args = parser.parse_args(argv)
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Lint the given files and print violations, returning the process exit code."""
+    args = build_parser().parse_args(argv)
 
     try:
         rules = _resolve_rules(Path(args.config))
