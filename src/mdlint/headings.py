@@ -33,6 +33,21 @@ _LIST_ITEM_RE = re.compile(r"^ {0,3}([-*+]|\d{1,9}[.)])(\s+)\S")
 _FRONT_MATTER_DELIMS = ("---", "+++")
 
 
+def _strip_bom(lines: list[str]) -> list[str]:
+    """Drop a leading UTF-8 BOM from the first line, if present.
+
+    ``str.strip()`` does not remove U+FEFF, so a BOM-prefixed first line
+    (``"\\ufeff# Title"``) fails the ATX heading regex and the front-matter
+    delimiter comparison alike, silently hiding the document's first heading
+    from every MDS rule. Centralized here so ``front_matter_end`` and
+    ``iter_headings`` agree on line content without callers stripping it
+    themselves.
+    """
+    if lines and lines[0].startswith("﻿"):
+        return [lines[0][1:], *lines[1:]]
+    return lines
+
+
 def front_matter_end(lines: list[str]) -> int:
     """Return the index following a leading front-matter block, else 0.
 
@@ -40,6 +55,7 @@ def front_matter_end(lines: list[str]) -> int:
     document's literal first line to count; an unterminated block is left
     alone (returns 0) so its lines are still scanned normally.
     """
+    lines = _strip_bom(lines)
     if not lines:
         return 0
     delim = lines[0].strip()
@@ -69,6 +85,7 @@ class Heading:
 
 def iter_headings(lines: list[str]) -> Iterator[Heading]:
     """Yield a Heading for each ATX or setext heading in lines, in document order."""
+    lines = _strip_bom(lines)
     fenced_lines = _fenced_line_numbers(lines)
     skip_through = front_matter_end(lines)
     paragraph_start: int | None = None
