@@ -150,6 +150,44 @@ def test_fix_continues_past_an_unwritable_file(tmp_path, capsys):
     assert f"{unwritable}:1: MDS01" in captured.out
 
 
+@needs_unix_perms
+def test_fix_write_failure_is_reported_in_json_errors(tmp_path, capsys):
+    unwritable = tmp_path / "doc.md"
+    unwritable.write_text("Not a heading\n\n- one\n* two\n")
+    unwritable.chmod(0o400)
+
+    try:
+        exit_code = main(["--fix", "--format", "json", str(unwritable)])
+    finally:
+        unwritable.chmod(0o600)
+
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    assert exit_code == 2
+    # The write failure must surface in the structured "errors" list, not
+    # just on stderr, since --format json callers don't read stderr.
+    assert payload["errors"] == [
+        {"file": str(unwritable), "message": payload["errors"][0]["message"]}
+    ]
+    # The file is still linted against its real (unfixed) content, so both
+    # the unfixable MDS01 violation and the never-applied MDT01 autofix
+    # still show up.
+    assert payload["violations"] == [
+        {
+            "file": str(unwritable),
+            "line": 1,
+            "rule_id": "MDS01",
+            "message": "first line should be a top-level (H1) heading",
+        },
+        {
+            "file": str(unwritable),
+            "line": 4,
+            "rule_id": "MDT01",
+            "message": "list marker '*' is inconsistent; file uses '-'",
+        },
+    ]
+
+
 def test_exact_output_line_format(tmp_path, capsys):
     doc = tmp_path / "doc.md"
     doc.write_text("Not a heading\n")
