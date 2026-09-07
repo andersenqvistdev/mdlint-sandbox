@@ -8,6 +8,11 @@ table with a mismatched second row. Once a table is found, the header's
 column count is the expected count for every following row until a blank
 line, non-pipe line, or end of file closes the table. Fenced code blocks are
 skipped so pipes inside a fence aren't mistaken for a table.
+
+Per GFM, a ``|`` inside a backtick code span (or escaped with ``\\``) is cell
+content, not a column separator — ``_split_row`` walks the line rather than
+regex-splitting on every ``|`` so a cell like `` `a|b` `` isn't miscounted as
+two columns.
 """
 
 import re
@@ -18,12 +23,59 @@ from mdlint.violation import Violation
 RULE_ID = "MDT03"
 
 _FENCE_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
-_PIPE_SPLIT_RE = re.compile(r"(?<!\\)\|")
+_BACKTICK_RUN_RE = re.compile(r"`+")
 _DELIMITER_CELL_RE = re.compile(r"^:?-+:?$")
 
 
+def _find_backtick_closer(text: str, start: int, run_length: int) -> int | None:
+    """Return the index just past the next backtick run of run_length, or None.
+
+    Per CommonMark, a code span's closer is the *first* backtick run after
+    the opener whose length equals the opener's — a shorter or longer run
+    doesn't close it and is skipped over.
+    """
+    index = start
+    length = len(text)
+    while index < length:
+        if text[index] != "`":
+            index += 1
+            continue
+        run_end = _BACKTICK_RUN_RE.match(text, index).end()
+        if run_end - index == run_length:
+            return run_end
+        index = run_end
+    return None
+
+
 def _split_row(line: str) -> list[str]:
-    cells = _PIPE_SPLIT_RE.split(line.strip())
+    """Split a table row into cells on ``|`` outside code spans/escapes."""
+    stripped = line.strip()
+    length = len(stripped)
+    cells: list[str] = []
+    current: list[str] = []
+    index = 0
+    while index < length:
+        char = stripped[index]
+        if char == "\\" and index + 1 < length and stripped[index + 1] == "|":
+            current.append(stripped[index : index + 2])
+            index += 2
+            continue
+        if char == "`":
+            run_end = _BACKTICK_RUN_RE.match(stripped, index).end()
+            run_length = run_end - index
+            closer = _find_backtick_closer(stripped, run_end, run_length)
+            end = closer if closer is not None else run_end
+            current.append(stripped[index:end])
+            index = end
+            continue
+        if char == "|":
+            cells.append("".join(current))
+            current = []
+            index += 1
+            continue
+        current.append(char)
+        index += 1
+    cells.append("".join(current))
     if cells and cells[0] == "":
         cells = cells[1:]
     if cells and cells[-1] == "":

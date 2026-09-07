@@ -136,6 +136,49 @@ def test_ignores_a_block_whose_delimiter_row_column_count_differs_from_the_heade
     assert check("doc.md", lines) == []
 
 
+def test_pipe_inside_a_code_span_is_not_a_column_separator():
+    lines = [
+        "| A | B |",
+        "| --- | --- |",
+        "| `a|b` | 2 |",
+    ]
+
+    assert check("doc.md", lines) == []
+
+
+def test_mismatched_row_with_a_code_span_pipe_is_still_flagged():
+    lines = [
+        "| A | B |",
+        "| --- | --- |",
+        "| `a|b|c` |",
+    ]
+
+    violations = check("doc.md", lines)
+
+    assert len(violations) == 1
+    assert violations[0].line == 3
+
+
+def test_double_backtick_code_span_containing_a_single_backtick_and_a_pipe():
+    lines = [
+        "| A | B |",
+        "| --- | --- |",
+        "| `` a`|b `` | 2 |",
+    ]
+
+    assert check("doc.md", lines) == []
+
+
+def test_unmatched_backtick_run_is_treated_as_literal_text():
+    lines = [
+        "| A | B |",
+        "| --- | --- |",
+        "| `a | 2 |",
+    ]
+
+    assert check("doc.md", lines) == []
+
+
 def test_checks_multiple_tables_independently():
     lines = [
         "| A | B |",
