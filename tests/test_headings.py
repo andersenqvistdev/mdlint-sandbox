@@ -173,6 +173,29 @@ def test_unterminated_front_matter_is_scanned_normally():
     assert headings == [Heading(level=1, text="Title", line=3)]
 
 
+def test_three_space_indented_atx_heading_is_still_recognized():
+    # CommonMark allows up to three leading spaces before a heading marker.
+    headings = list(iter_headings(["   # three spaces still heading"]))
+
+    assert headings == [Heading(level=1, text="three spaces still heading", line=1)]
+
+
+def test_four_space_indented_hash_is_an_indented_code_block_not_a_heading():
+    # Four or more leading spaces makes this an indented code block per
+    # CommonMark, so the "#" is literal text, not a heading marker.
+    headings = list(iter_headings(["    # indented code, not heading"]))
+
+    assert headings == []
+
+
+def test_tab_indented_hash_is_an_indented_code_block_not_a_heading():
+    # A leading tab expands past the indented-code-block threshold, same as
+    # four spaces, so this is also not a heading.
+    headings = list(iter_headings(["\t# tab indented, not heading"]))
+
+    assert headings == []
+
+
 def test_front_matter_delimiter_must_be_the_literal_first_line():
     # A "---" preceded by a blank line doesn't qualify as front matter
     # (Jekyll/Hugo require it to open the file), so its "---" lines are
