@@ -11,10 +11,14 @@ from pathlib import Path
 
 from mdlint.cli import build_parser
 from mdlint.rules import all_rules
+from mdlint.rules.md_s01_first_line_heading import check as check_first_line_heading
+from mdlint.rules.md_s02_heading_increment import check as check_heading_increment
+from mdlint.rules.md_s03_no_duplicate_siblings import check as check_no_duplicate_siblings
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 RULE_HEADING_RE = re.compile(r"^### (MD[A-Z]\d{2}) ", re.MULTILINE)
 OPTIONS_FLAG_RE = re.compile(r"^\| `(--[a-z-]+)", re.MULTILINE)
+STRUCTURE_CHECKS = (check_first_line_heading, check_heading_increment, check_no_duplicate_siblings)
 
 
 def _rules_doc_text() -> str:
@@ -64,6 +68,22 @@ def test_every_doc_entry_has_a_passing_and_failing_example():
             assert fence.group(1).strip(), (
                 f"section '{heading}' has an empty fenced code block for '{label}'"
             )
+
+
+def test_readme_and_rules_doc_satisfy_the_structure_rules():
+    """Dogfooding guard: our own docs must stay clean under MDS01-03.
+
+    Nothing else here would catch a future edit that drops the leading H1,
+    skips a heading level, or duplicates a sibling heading in README.md or
+    docs/rules.md, since the other tests in this module only check that doc
+    content exists — not that it's structurally valid per the rules it
+    documents.
+    """
+    for relative in ("README.md", "docs/rules.md"):
+        lines = (REPO_ROOT / relative).read_text().splitlines()
+        violations = [v for check in STRUCTURE_CHECKS for v in check(relative, lines)]
+
+        assert violations == [], f"{relative} violates structure rules: {violations}"
 
 
 def test_readme_documents_install_and_usage():
