@@ -126,6 +126,16 @@ def test_recognizes_delimiter_rows_with_alignment_colons():
     assert violations[0].line == 3
 
 
+def test_ignores_a_block_whose_delimiter_row_column_count_differs_from_the_header():
+    lines = [
+        "| A | B | C |",
+        "| --- | --- |",
+        "| 1 | 2 | 3 |",
+    ]
+
+    assert check("doc.md", lines) == []
+
+
 def test_checks_multiple_tables_independently():
     lines = [
         "| A | B |",
