@@ -394,6 +394,19 @@ def test_config_with_no_enabled_key_runs_every_rule(tmp_path, capsys):
     assert "MDS01" in captured.out
 
 
+def test_config_with_empty_enabled_list_runs_no_rules(tmp_path, capsys):
+    doc = tmp_path / "doc.md"
+    doc.write_text("Not a heading\n")
+    config = tmp_path / ".mdlintrc"
+    config.write_text(json.dumps({"enabled": []}))
+
+    exit_code = main(["--config", str(config), str(doc)])
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert captured.out == ""
+
+
 def test_missing_config_file_runs_every_rule(tmp_path, capsys):
     doc = tmp_path / "doc.md"
     doc.write_text("Not a heading\n")
