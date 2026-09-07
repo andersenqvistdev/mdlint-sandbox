@@ -211,6 +211,24 @@ def test_fix_rewrites_the_file_and_reports_remaining_violations(tmp_path, capsys
     assert doc.read_text() == "# Title\n\n- one\n- two\n"
 
 
+def test_mdt02_and_mdt03_violations_are_reported_through_the_cli(tmp_path, capsys):
+    """MDT01 gets CLI-level coverage above; MDT02 and MDT03 were only ever
+    exercised via their own rule-level unit tests. Confirm the CLI entry
+    point surfaces both correctly too, including together in one file."""
+    doc = tmp_path / "doc.md"
+    doc.write_text("# Title\n\n1. one\n3. three\n\n| A | B |\n| --- | --- |\n| 1 | 2 | 3 |\n")
+
+    exit_code = main([str(doc)])
+
+    captured = capsys.readouterr()
+    lines = captured.out.splitlines()
+    assert exit_code == 1
+    assert lines == [
+        f"{doc}:4: MDT02 ordered list item is numbered 3; expected 2 to continue the sequence",
+        f"{doc}:8: MDT03 table row has 3 column(s); expected 2 to match the header",
+    ]
+
+
 def test_fix_leaves_unfixable_violations_in_place(tmp_path, capsys):
     doc = tmp_path / "doc.md"
     doc.write_text("Not a heading\n")
