@@ -81,6 +81,18 @@ def test_passes_for_setext_and_atx_headings_with_different_text():
     assert check("doc.md", lines) == []
 
 
+def test_detects_duplicate_top_level_siblings_after_a_utf8_bom():
+    # A BOM-prefixed first line must not hide the leading "# Title" heading
+    # from the ancestor stack (regression: previously the BOM broke the ATX
+    # regex match, so "Title" was never recorded as a sibling/ancestor).
+    lines = ["﻿# Title", "# Title"]
+
+    violations = check("doc.md", lines)
+
+    assert len(violations) == 1
+    assert violations[0].line == 2
+
+
 def test_front_matter_closing_delimiter_does_not_create_a_phantom_sibling():
     # Without front-matter awareness, "---" after "note: y" reads as a
     # setext H2 underline, which would falsely collide with a real "note: y"

@@ -9,8 +9,6 @@ RULE_ID = "MDS01"
 
 def check(file: str, lines: list[str]) -> list[Violation]:
     """Flag a document whose first non-blank line isn't an H1 heading."""
-    if lines and lines[0].startswith("\ufeff"):
-        lines = [lines[0][1:], *lines[1:]]
     start = front_matter_end(lines)
     headings = list(iter_headings(lines))
     for lineno, line in enumerate(lines[start:], start=start + 1):

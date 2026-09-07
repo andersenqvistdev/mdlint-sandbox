@@ -62,6 +62,18 @@ def test_fails_when_setext_h1_is_followed_by_a_skipped_atx_level():
     assert violations[0].line == 4
 
 
+def test_fails_when_a_level_is_skipped_after_a_utf8_bom():
+    # A BOM-prefixed first line must not hide the leading "# Title" heading
+    # from this rule's level tracking (regression: previously the BOM broke
+    # the ATX regex match, so the H1 -> H3 jump went undetected).
+    lines = ["﻿# Title", "### Too deep"]
+
+    violations = check("doc.md", lines)
+
+    assert len(violations) == 1
+    assert violations[0].line == 2
+
+
 def test_front_matter_closing_delimiter_does_not_create_a_phantom_heading():
     # Without front-matter awareness, "---" after "x: y" reads as a setext H2
     # underline, so the real first heading ("#### Deep") would falsely look
