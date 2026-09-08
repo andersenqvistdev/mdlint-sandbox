@@ -92,3 +92,19 @@ def fence_marker_span(line: str) -> tuple[int, int] | None:
     if not match:
         return None
     return match.span(1)
+
+
+def fenced_line_numbers(lines: list[str]) -> set[int]:
+    """Return every 1-based line number that falls inside a fenced code block.
+
+    Shared by every rule that must skip fence content (a ``- like this``
+    line inside a fence isn't a real list item, a ``|`` isn't a real table
+    cell, and so on), so they all agree with :func:`iter_fence_blocks` on
+    where a fence starts and ends instead of re-deriving it with a
+    same-marker toggle that desyncs on mixed backtick/tilde fences.
+    """
+    fenced: set[int] = set()
+    for block in iter_fence_blocks(lines):
+        end = block.close_line if block.close_line is not None else len(lines)
+        fenced.update(range(block.open_line, end + 1))
+    return fenced

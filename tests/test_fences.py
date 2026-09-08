@@ -1,6 +1,6 @@
 """Tests for the shared fence parser used by the MDF rules."""
 
-from mdlint.fences import FenceBlock, fence_marker_span, iter_fence_blocks
+from mdlint.fences import FenceBlock, fence_marker_span, fenced_line_numbers, iter_fence_blocks
 
 
 def test_fence_marker_span_returns_none_for_non_fence_line():
@@ -173,3 +173,25 @@ def test_fence_indented_by_four_or_more_spaces_is_not_a_fence():
     lines = ["    ```", "not a real fence, this is indented code", "    ```"]
 
     assert list(iter_fence_blocks(lines)) == []
+
+
+def test_fenced_line_numbers_covers_the_open_and_close_lines_inclusive():
+    lines = ["prose", "```python", "code", "```", "prose"]
+
+    assert fenced_line_numbers(lines) == {2, 3, 4}
+
+
+def test_fenced_line_numbers_extends_to_end_of_file_for_an_unclosed_fence():
+    lines = ["prose", "```python", "code"]
+
+    assert fenced_line_numbers(lines) == {2, 3}
+
+
+def test_fenced_line_numbers_covers_multiple_blocks():
+    lines = ["```", "one", "```", "text", "~~~", "two", "~~~"]
+
+    assert fenced_line_numbers(lines) == {1, 2, 3, 5, 6, 7}
+
+
+def test_fenced_line_numbers_empty_for_a_document_with_no_fences():
+    assert fenced_line_numbers(["plain text", "more text"]) == set()
