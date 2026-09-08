@@ -1,14 +1,19 @@
 """List item extraction shared by the list rules (MDT family).
 
 Fenced code blocks are skipped so that a line like ``- not a list item``
-inside a ``` fence isn't mistaken for a list item.
+inside a ``` fence isn't mistaken for a list item. Fence boundaries are
+detected via :func:`mdlint.fences.fenced_line_numbers` rather than a
+same-marker toggle, which desyncs (and starts leaking fence content as real
+list items) as soon as a fence contains a line opening with the other
+marker character.
 """
 
 import re
 from collections.abc import Iterator
 from dataclasses import dataclass
 
-_FENCE_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
+from mdlint.fences import fenced_line_numbers
+
 _UNORDERED_RE = re.compile(r"^( {0,3})([-*+])(\s+)\S")
 _ORDERED_RE = re.compile(r"^( {0,3})(\d{1,9})([.)])(\s+)\S")
 # CommonMark thematic break (spec 4.1): 3+ of the same -, _, or * character,
@@ -41,14 +46,9 @@ def iter_unordered_list_items(lines: list[str]) -> Iterator[UnorderedListItem]:
     A bare thematic break (e.g. ``---`` or ``***``) has no content after the
     marker and is not matched.
     """
-    fence_char: str | None = None
+    fenced_lines = fenced_line_numbers(lines)
     for lineno, raw_line in enumerate(lines, start=1):
-        fence_match = _FENCE_RE.match(raw_line)
-        if fence_match:
-            marker_char = fence_match.group(1)[0]
-            fence_char = None if fence_char == marker_char else marker_char
-            continue
-        if fence_char is not None:
+        if lineno in fenced_lines:
             continue
         if _THEMATIC_BREAK_RE.match(raw_line):
             continue
@@ -60,14 +60,9 @@ def iter_unordered_list_items(lines: list[str]) -> Iterator[UnorderedListItem]:
 
 def iter_ordered_list_items(lines: list[str]) -> Iterator[OrderedListItem]:
     """Yield an OrderedListItem for each numbered list item in lines, in order."""
-    fence_char: str | None = None
+    fenced_lines = fenced_line_numbers(lines)
     for lineno, raw_line in enumerate(lines, start=1):
-        fence_match = _FENCE_RE.match(raw_line)
-        if fence_match:
-            marker_char = fence_match.group(1)[0]
-            fence_char = None if fence_char == marker_char else marker_char
-            continue
-        if fence_char is not None:
+        if lineno in fenced_lines:
             continue
         match = _ORDERED_RE.match(raw_line)
         if not match:

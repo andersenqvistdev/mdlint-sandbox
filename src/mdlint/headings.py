@@ -24,7 +24,7 @@ import re
 from collections.abc import Iterator
 from dataclasses import dataclass
 
-from mdlint.fences import iter_fence_blocks
+from mdlint.fences import fenced_line_numbers
 
 _ATX_RE = re.compile(r"^ {0,3}(#{1,6})(?:\s+(.*))?$")
 _TRAILING_HASHES_RE = re.compile(r"(?:^|\s)#+\s*$")
@@ -65,15 +65,6 @@ def front_matter_end(lines: list[str]) -> int:
     return closing + 1 if closing is not None else 0
 
 
-def _fenced_line_numbers(lines: list[str]) -> set[int]:
-    """Return every 1-based line number that falls inside a fenced code block."""
-    fenced: set[int] = set()
-    for block in iter_fence_blocks(lines):
-        end = block.close_line if block.close_line is not None else len(lines)
-        fenced.update(range(block.open_line, end + 1))
-    return fenced
-
-
 @dataclass(frozen=True)
 class Heading:
     """A single ATX or setext heading found in a document."""
@@ -86,7 +77,7 @@ class Heading:
 def iter_headings(lines: list[str]) -> Iterator[Heading]:
     """Yield a Heading for each ATX or setext heading in lines, in document order."""
     lines = _strip_bom(lines)
-    fenced_lines = _fenced_line_numbers(lines)
+    fenced_lines = fenced_line_numbers(lines)
     skip_through = front_matter_end(lines)
     paragraph_start: int | None = None
     paragraph_texts: list[str] = []

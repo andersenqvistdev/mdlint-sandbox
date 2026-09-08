@@ -7,7 +7,11 @@ a table at all, so that line pair is left alone rather than misread as a
 table with a mismatched second row. Once a table is found, the header's
 column count is the expected count for every following row until a blank
 line, non-pipe line, or end of file closes the table. Fenced code blocks are
-skipped so pipes inside a fence aren't mistaken for a table.
+skipped so pipes inside a fence aren't mistaken for a table; fence
+boundaries are detected via :func:`mdlint.fences.fenced_line_numbers` rather
+than a same-marker toggle, which desyncs (and starts linting fence content
+as a table) as soon as a fence contains a line opening with the other
+marker character.
 
 Per GFM, a ``|`` inside a backtick code span (or escaped with ``\\``) is cell
 content, not a column separator — ``_split_row`` walks the line rather than
@@ -17,12 +21,12 @@ two columns.
 
 import re
 
+from mdlint.fences import fenced_line_numbers
 from mdlint.rules import Rule, register
 from mdlint.violation import Violation
 
 RULE_ID = "MDT03"
 
-_FENCE_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
 _BACKTICK_RUN_RE = re.compile(r"`+")
 _DELIMITER_CELL_RE = re.compile(r"^:?-+:?$")
 
@@ -94,18 +98,12 @@ def _is_delimiter_row(cells: list[str], column_count: int) -> bool:
 def check(file: str, lines: list[str]) -> list[Violation]:
     """Flag table rows whose column count doesn't match the header row."""
     violations = []
-    fence_char: str | None = None
+    fenced_lines = fenced_line_numbers(lines)
     total = len(lines)
     index = 0
     while index < total:
         raw_line = lines[index]
-        fence_match = _FENCE_RE.match(raw_line)
-        if fence_match:
-            marker_char = fence_match.group(1)[0]
-            fence_char = None if fence_char == marker_char else marker_char
-            index += 1
-            continue
-        if fence_char is not None:
+        if index + 1 in fenced_lines:
             index += 1
             continue
 

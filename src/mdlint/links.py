@@ -1,14 +1,19 @@
 """Inline link extraction shared by the link rules (MDL family).
 
 Fenced code blocks and inline code spans are skipped so that link-like or
-URL-like text inside code isn't mistaken for real markdown syntax.
+URL-like text inside code isn't mistaken for real markdown syntax. Fence
+boundaries are detected via :func:`mdlint.fences.fenced_line_numbers` rather
+than a same-marker toggle, which desyncs (and starts linting fence content
+as prose) as soon as a fence contains a line opening with the other marker
+character.
 """
 
 import re
 from collections.abc import Iterator
 from dataclasses import dataclass
 
-_FENCE_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
+from mdlint.fences import fenced_line_numbers
+
 _LINK_RE = re.compile(r"!?\[([^\]]*)\]\(([^)\s]*)(?:\s+[^)]*)?\)")
 
 
@@ -70,14 +75,9 @@ def mask_links(line: str) -> str:
 
 def iter_masked_lines(lines: list[str]) -> Iterator[tuple[int, str]]:
     """Yield (line number, line) for non-fenced lines with code spans blanked."""
-    fence_char: str | None = None
+    fenced_lines = fenced_line_numbers(lines)
     for lineno, raw_line in enumerate(lines, start=1):
-        fence_match = _FENCE_RE.match(raw_line)
-        if fence_match:
-            marker_char = fence_match.group(1)[0]
-            fence_char = None if fence_char == marker_char else marker_char
-            continue
-        if fence_char is not None:
+        if lineno in fenced_lines:
             continue
         yield lineno, mask_code_spans(raw_line)
 

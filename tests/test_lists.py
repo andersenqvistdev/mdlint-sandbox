@@ -50,6 +50,20 @@ def test_ignores_a_bullet_indented_four_or_more_spaces_as_indented_code():
     assert list(iter_unordered_list_items(["    - looks like a bullet"])) == []
 
 
+def test_a_tilde_line_inside_a_backtick_fence_does_not_desync_tracking():
+    """A same-length ~~~ inside a ``` fence is content, not a fence boundary.
+
+    An earlier same-marker toggle flipped state on any 3+ run regardless of
+    character, so this line closed the wrong "fence" and made the real list
+    item after the closer invisible.
+    """
+    lines = ["```", "~~~", "not a list item", "```", "- real list item"]
+
+    items = list(iter_unordered_list_items(lines))
+
+    assert [item.line for item in items] == [5]
+
+
 def test_extracts_ordered_items_with_number_indent_and_line():
     lines = ["1. one", "  2. two"]
 
@@ -79,3 +93,11 @@ def test_ignores_ordered_items_inside_fenced_code_blocks():
 
 def test_ignores_a_number_indented_four_or_more_spaces_as_indented_code():
     assert list(iter_ordered_list_items(["    1. looks like an item"])) == []
+
+
+def test_a_backtick_line_inside_a_tilde_fence_does_not_desync_tracking():
+    lines = ["~~~", "```", "not a list item", "~~~", "1. real list item"]
+
+    items = list(iter_ordered_list_items(lines))
+
+    assert [item.line for item in items] == [5]

@@ -103,6 +103,28 @@ def test_ignores_tables_inside_tilde_fenced_code_blocks():
     assert check("doc.md", lines) == []
 
 
+def test_a_tilde_line_inside_a_backtick_fence_does_not_desync_tracking():
+    """A same-length ~~~ inside a ``` fence is content, not a fence boundary.
+
+    An earlier same-marker toggle flipped state on any 3+ run regardless of
+    character, so this line closed the wrong "fence" and left a real,
+    mismatched table after the closer unchecked.
+    """
+    lines = [
+        "```",
+        "~~~",
+        "not a table",
+        "```",
+        "| A | B |",
+        "| --- | --- |",
+        "| 1 | 2 | 3 |",
+    ]
+
+    violations = check("doc.md", lines)
+
+    assert [v.line for v in violations] == [7]
+
+
 def test_escaped_pipe_inside_a_cell_is_not_a_column_separator():
     lines = [
         "| A | B |",

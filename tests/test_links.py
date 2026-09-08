@@ -28,6 +28,20 @@ def test_ignores_links_inside_fenced_code_blocks():
     assert [link.target for link in links] == ["real.md", "x.md"]
 
 
+def test_a_tilde_line_inside_a_backtick_fence_does_not_desync_tracking():
+    """A same-length ~~~ inside a ``` fence is content, not a fence boundary.
+
+    An earlier same-marker toggle flipped state on any 3+ run regardless of
+    character, so this line closed the wrong "fence" and made the real link
+    after the closer invisible.
+    """
+    lines = ["```", "~~~", "[fake](fake.md)", "```", "[real](real.md)"]
+
+    links = list(iter_links(lines))
+
+    assert [link.target for link in links] == ["real.md"]
+
+
 def test_ignores_links_inside_inline_code_spans():
     links = list(iter_links(["Use `[not](a.md)` literally, not [this](b.md)"]))
 
