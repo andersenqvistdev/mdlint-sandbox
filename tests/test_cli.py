@@ -558,6 +558,23 @@ def test_config_with_invalid_utf8_exits_two(tmp_path, capsys):
     assert captured.out == ""
 
 
+def test_invalid_config_error_takes_priority_over_invalid_ignore_pattern(tmp_path, capsys):
+    doc = tmp_path / "doc.md"
+    doc.write_text("# Title\n")
+    config = tmp_path / ".mdlintrc"
+    config.write_text("{not json")
+
+    # Rules are resolved (and the config parsed) before --ignore patterns
+    # are validated, so a broken config must be reported even when an
+    # --ignore pattern is also malformed, not the other way around.
+    exit_code = main(["--config", str(config), "--ignore", "", str(doc)])
+
+    captured = capsys.readouterr()
+    assert exit_code == 2
+    assert str(config) in captured.err
+    assert "invalid --ignore pattern" not in captured.err
+
+
 def test_config_with_non_list_enabled_value_exits_two(tmp_path, capsys):
     doc = tmp_path / "doc.md"
     doc.write_text("# Title\n")
