@@ -344,6 +344,20 @@ def test_ignore_skips_matching_files(tmp_path, capsys):
     assert captured.out == ""
 
 
+def test_ignore_skips_nonexistent_file_without_a_read_error(tmp_path, capsys):
+    missing = tmp_path / "missing.md"
+
+    # --ignore filtering happens before the file is opened, so a pattern
+    # matching a path that was never created (e.g. a generated file excluded
+    # from linting) must not surface as a read error.
+    exit_code = main(["--ignore", "missing.md", str(missing)])
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert captured.out == ""
+    assert captured.err == ""
+
+
 def test_ignore_glob_pattern_matches_by_basename(tmp_path, capsys):
     dirty = tmp_path / "draft-notes.md"
     dirty.write_text("Not a heading\n")
