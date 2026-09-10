@@ -26,4 +26,9 @@ def check(file: str, lines: list[str]) -> list[Violation]:
     return violations
 
 
-register(Rule(id=RULE_ID, name="no-trailing-spaces", check=check))
+def fix(lines: list[str]) -> list[str]:
+    """Strip trailing space characters from every line."""
+    return [_TRAILING_SPACE_RE.sub("", line) for line in lines]
+
+
+register(Rule(id=RULE_ID, name="no-trailing-spaces", check=check, fix=fix))

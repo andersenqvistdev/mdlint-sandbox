@@ -13,7 +13,9 @@ backing each example.
 Rules marked **Autofix: yes** below have a safe, unambiguous fix and are
 rewritten in place by `mdlint --fix` (see the README's "Autofix" section).
 Every other rule only reports the violation; fix it by hand. Autofixable
-rules: [MDF03](#mdf03--consistent-fence-marker),
+rules: [MDW01](#mdw01--no-trailing-spaces),
+[MDW03](#mdw03--no-consecutive-blank-lines),
+[MDW04](#mdw04--final-newline), [MDF03](#mdf03--consistent-fence-marker),
 [MDL03](#mdl03--no-bare-urls), [MDT01](#mdt01--consistent-unordered-markers),
 [MDT02](#mdt02--ordered-list-sequential).
 
@@ -100,6 +102,8 @@ Failing:
 
 Lines must not end with trailing space characters.
 
+**Autofix: yes** — strips trailing spaces from the line.
+
 Passing:
 
 ```markdown
@@ -137,6 +141,8 @@ Failing (the line below is indented with a tab character):
 Documents must not contain two or more consecutive blank lines; collapse
 runs down to a single blank line.
 
+**Autofix: yes** — drops every blank line in a run beyond the first.
+
 Passing:
 
 ```markdown
@@ -160,6 +166,9 @@ Paragraph two.
 
 A document must end with exactly one trailing newline — not zero, not
 several.
+
+**Autofix: yes** — appends a missing final newline, or collapses extra
+trailing blank lines down to one.
 
 Passing (file bytes, `␊` marking a newline):
 

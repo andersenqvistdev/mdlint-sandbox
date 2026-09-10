@@ -6,7 +6,7 @@ text under test, since that round trip is how the rule tells a missing
 newline apart from one trailing newline apart from several.
 """
 
-from mdlint.rules.md_w04_final_newline import RULE_ID, check
+from mdlint.rules.md_w04_final_newline import RULE_ID, check, fix
 
 
 def test_passes_for_a_single_trailing_newline():
@@ -63,3 +63,37 @@ def test_empty_file_has_no_violations():
 def test_file_that_is_only_a_newline_has_no_violations():
     # "\n"
     assert check("doc.md", ["", ""]) == []
+
+
+def test_fix_appends_a_missing_trailing_newline():
+    lines = ["# Title", "body"]
+
+    fixed = fix(lines)
+
+    assert fixed == ["# Title", "body", ""]
+    assert check("doc.md", fixed) == []
+
+
+def test_fix_collapses_several_extra_trailing_blank_lines_to_one_newline():
+    lines = ["# Title", "", "", ""]
+
+    fixed = fix(lines)
+
+    assert fixed == ["# Title", ""]
+    assert check("doc.md", fixed) == []
+
+
+def test_fix_collapses_a_single_extra_trailing_blank_line():
+    lines = ["# Title", "", ""]
+
+    assert fix(lines) == ["# Title", ""]
+
+
+def test_fix_is_a_noop_for_an_empty_file():
+    assert fix([""]) == [""]
+
+
+def test_fix_is_a_noop_when_already_a_single_trailing_newline():
+    lines = ["# Title", "", "## Section", ""]
+
+    assert fix(lines) == lines
