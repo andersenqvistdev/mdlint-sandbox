@@ -39,6 +39,13 @@ MUTANTS = [
         "guards": "R1 - MDF01 must fire on exactly the undeclared fences",
     },
     {
+        "name": "MDS01 top-level test inverted",
+        "file": "mdlint/rules/md_s01_first_line_heading.py",
+        "find": "if first is not None and first.level == 1:",
+        "replace": "if first is not None and first.level != 1:",
+        "guards": "R2 - MDS01 must never fire on a document that plainly opens with an H1",
+    },
+    {
         "name": "MDS02 jump threshold loosened by one level",
         "file": "mdlint/rules/md_s02_heading_increment.py",
         "find": "heading.level > previous_level + 1",
