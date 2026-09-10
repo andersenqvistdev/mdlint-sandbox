@@ -1,4 +1,4 @@
-"""MDT03 — every row in a table must have as many columns as the header.
+r"""MDT03 — every row in a table must have as many columns as the header.
 
 A table is a header row immediately followed by a delimiter row (cells made
 only of ``-``, and optional ``:`` for alignment) whose cell count matches the
@@ -13,10 +13,12 @@ than a same-marker toggle, which desyncs (and starts linting fence content
 as a table) as soon as a fence contains a line opening with the other
 marker character.
 
-Per GFM, a ``|`` inside a backtick code span (or escaped with ``\\``) is cell
+Per GFM, a ``|`` inside a backtick code span (or escaped with ``\|``) is cell
 content, not a column separator — ``_split_row`` walks the line rather than
 regex-splitting on every ``|`` so a cell like `` `a|b` `` isn't miscounted as
-two columns.
+two columns. ``\\`` (an escaped backslash) is consumed as its own two-char
+literal so a following ``|`` is left as a real separator, rather than being
+swallowed as if it were escaped by the leftover backslash.
 """
 
 import re
@@ -60,7 +62,7 @@ def _split_row(line: str) -> list[str]:
     index = 0
     while index < length:
         char = stripped[index]
-        if char == "\\" and index + 1 < length and stripped[index + 1] == "|":
+        if char == "\\" and index + 1 < length and stripped[index + 1] in "\\|":
             current.append(stripped[index : index + 2])
             index += 2
             continue

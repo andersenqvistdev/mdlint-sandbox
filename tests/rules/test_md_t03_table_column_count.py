@@ -135,6 +135,22 @@ def test_escaped_pipe_inside_a_cell_is_not_a_column_separator():
     assert check("doc.md", lines) == []
 
 
+def test_escaped_backslash_before_a_pipe_leaves_the_pipe_as_a_separator():
+    r"""`\\` is an escaped backslash (renders as a literal `\`), so the pipe
+    right after it is a real separator, not part of that same escape — unlike
+    a lone `\|`, which escapes the pipe itself."""
+    lines = [
+        "| A | B |",
+        "| --- | --- |",
+        r"| a\\| b | c |",
+    ]
+
+    violations = check("doc.md", lines)
+
+    assert len(violations) == 1
+    assert violations[0].line == 3
+
+
 def test_recognizes_delimiter_rows_with_alignment_colons():
     lines = [
         "| A | B | C |",
