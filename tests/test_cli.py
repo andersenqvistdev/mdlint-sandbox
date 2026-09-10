@@ -90,6 +90,31 @@ def test_directory_passed_as_file_exits_two_with_stderr_message(tmp_path, capsys
     assert captured.out == ""
 
 
+def test_invalid_utf8_file_exits_two_with_stderr_message(tmp_path, capsys):
+    bad = tmp_path / "bad.md"
+    bad.write_bytes(b"# Title\n\xff\xfe not valid utf-8\n")
+
+    exit_code = main([str(bad)])
+
+    captured = capsys.readouterr()
+    assert exit_code == 2
+    assert str(bad) in captured.err
+    assert captured.out == ""
+
+
+def test_invalid_utf8_file_is_reported_in_json_errors(tmp_path, capsys):
+    bad = tmp_path / "bad.md"
+    bad.write_bytes(b"# Title\n\xff\xfe not valid utf-8\n")
+
+    exit_code = main(["--format", "json", str(bad)])
+
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    assert exit_code == 2
+    assert payload["violations"] == []
+    assert payload["errors"][0]["file"] == str(bad)
+
+
 @needs_unix_perms
 def test_unreadable_file_exits_two_with_stderr_message(tmp_path, capsys):
     unreadable = tmp_path / "secret.md"
