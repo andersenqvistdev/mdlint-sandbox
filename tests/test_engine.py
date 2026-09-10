@@ -43,6 +43,33 @@ def test_aggregates_all_three_fence_rules_sorted_by_line():
     assert all(v.file == "doc.md" for v in violations)
 
 
+def test_registers_all_three_list_and_table_rules():
+    ids = {rule.id for rule in all_rules()}
+
+    assert {"MDT01", "MDT02", "MDT03"} <= ids
+
+
+def test_aggregates_all_three_list_and_table_rules_sorted_by_line():
+    # A bullet marker switch (MDT01, line 2), a skipped ordered number
+    # (MDT02, line 4), and a table row with an extra column (MDT03, line 7).
+    lines = [
+        "- one",
+        "* two",
+        "1. a",
+        "3. b",
+        "| A | B |",
+        "| --- | --- |",
+        "| 1 | 2 | 3 |",
+    ]
+    list_and_table_rules = [rule for rule in all_rules() if rule.id.startswith("MDT")]
+
+    violations = lint_lines("doc.md", lines, rules=list_and_table_rules)
+
+    assert [v.rule_id for v in violations] == ["MDT01", "MDT02", "MDT03"]
+    assert [v.line for v in violations] == [2, 4, 7]
+    assert all(v.file == "doc.md" for v in violations)
+
+
 def test_clean_document_has_no_violations():
     # "# Title\n\n## Section\n" via the CLI's split("\n")
     lines = ["# Title", "", "## Section", ""]
