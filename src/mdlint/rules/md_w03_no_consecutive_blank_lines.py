@@ -40,4 +40,25 @@ def check(file: str, lines: list[str]) -> list[Violation]:
     return violations
 
 
-register(Rule(id=RULE_ID, name="no-consecutive-blank-lines", check=check))
+def fix(lines: list[str]) -> list[str]:
+    """Collapse each run of consecutive blank lines down to its first line.
+
+    The trailing "" end-of-file marker (see the module docstring) is
+    preserved as-is rather than treated as part of a blank run, so fixing
+    never changes whether the file ends with a final newline.
+    """
+    has_eof_marker = bool(lines) and lines[-1] == ""
+    fixed = []
+    in_blank_run = False
+    for line in _content_lines(lines):
+        blank = line.strip() == ""
+        if blank and in_blank_run:
+            continue
+        in_blank_run = blank
+        fixed.append(line)
+    if has_eof_marker:
+        fixed.append("")
+    return fixed
+
+
+register(Rule(id=RULE_ID, name="no-consecutive-blank-lines", check=check, fix=fix))

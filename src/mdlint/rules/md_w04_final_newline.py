@@ -41,4 +41,17 @@ def check(file: str, lines: list[str]) -> list[Violation]:
     return []
 
 
-register(Rule(id=RULE_ID, name="final-newline", check=check))
+def fix(lines: list[str]) -> list[str]:
+    """Normalize the document to end with exactly one trailing newline."""
+    text = "\n".join(lines)
+    if text == "" or text.endswith("\n") and not text.endswith("\n\n"):
+        return lines
+    if not text.endswith("\n"):
+        return [*lines, ""]
+    trimmed = list(lines)
+    while len(trimmed) >= 2 and trimmed[-1] == "" and trimmed[-2] == "":
+        trimmed.pop()
+    return trimmed
+
+
+register(Rule(id=RULE_ID, name="final-newline", check=check, fix=fix))

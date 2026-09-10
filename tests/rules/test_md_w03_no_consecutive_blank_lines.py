@@ -6,7 +6,7 @@ md_w04_final_newline). That trailing marker must never itself be counted as
 a blank line.
 """
 
-from mdlint.rules.md_w03_no_consecutive_blank_lines import RULE_ID, check
+from mdlint.rules.md_w03_no_consecutive_blank_lines import RULE_ID, check, fix
 
 
 def test_passes_for_single_blank_lines_between_sections():
@@ -65,3 +65,30 @@ def test_document_without_trailing_newline_marker_is_scanned_as_is():
     violations = check("doc.md", lines)
 
     assert [v.line for v in violations] == [3]
+
+
+def test_fix_collapses_a_run_of_blank_lines_to_its_first_line():
+    lines = ["# Title", "", "", "", "body", ""]
+
+    fixed = fix(lines)
+
+    assert fixed == ["# Title", "", "body", ""]
+    assert check("doc.md", fixed) == []
+
+
+def test_fix_preserves_the_trailing_newline_marker_untouched():
+    lines = ["# Title", "", "body", ""]
+
+    assert fix(lines) == lines
+
+
+def test_fix_scans_every_element_when_there_is_no_trailing_newline_marker():
+    lines = ["# Title", "", "", "body"]
+
+    assert fix(lines) == ["# Title", "", "body"]
+
+
+def test_fix_is_a_noop_for_a_clean_document():
+    lines = ["# Title", "", "## Section", "", "body", ""]
+
+    assert fix(lines) == lines

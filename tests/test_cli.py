@@ -211,6 +211,18 @@ def test_fix_rewrites_the_file_and_reports_remaining_violations(tmp_path, capsys
     assert doc.read_text() == "# Title\n\n- one\n- two\n"
 
 
+def test_fix_cleans_up_trailing_spaces_and_blank_line_runs(tmp_path, capsys):
+    doc = tmp_path / "doc.md"
+    doc.write_text("# Title  \n\n\n\nBody.\n\n\n")
+
+    exit_code = main(["--fix", str(doc)])
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert captured.out == ""
+    assert doc.read_text() == "# Title\n\nBody.\n"
+
+
 def test_mdt02_and_mdt03_violations_are_reported_through_the_cli(tmp_path, capsys):
     """MDT01 gets CLI-level coverage above; MDT02 and MDT03 were only ever
     exercised via their own rule-level unit tests. Confirm the CLI entry
