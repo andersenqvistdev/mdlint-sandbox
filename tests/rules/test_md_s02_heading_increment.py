@@ -74,6 +74,15 @@ def test_fails_when_a_level_is_skipped_after_a_utf8_bom():
     assert violations[0].line == 2
 
 
+def test_blockquote_line_does_not_create_a_phantom_heading_to_jump_from():
+    # Without blockquote awareness, "> Note" followed by "----" reads as a
+    # setext H2, making the real "#### Deep" heading look like a false H2 ->
+    # H4 skip instead of the document's very first heading.
+    lines = ["> Note", "----", "#### Deep"]
+
+    assert check("doc.md", lines) == []
+
+
 def test_front_matter_closing_delimiter_does_not_create_a_phantom_heading():
     # Without front-matter awareness, "---" after "x: y" reads as a setext H2
     # underline, so the real first heading ("#### Deep") would falsely look
