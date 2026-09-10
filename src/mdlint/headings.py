@@ -30,6 +30,7 @@ _ATX_RE = re.compile(r"^ {0,3}(#{1,6})(?:\s+(.*))?$")
 _TRAILING_HASHES_RE = re.compile(r"(?:^|\s)#+\s*$")
 _SETEXT_UNDERLINE_RE = re.compile(r"^ {0,3}(=+|-+)[ \t]*$")
 _LIST_ITEM_RE = re.compile(r"^ {0,3}([-*+]|\d{1,9}[.)])(\s+)\S")
+_BLOCKQUOTE_RE = re.compile(r"^ {0,3}>")
 _FRONT_MATTER_DELIMS = ("---", "+++")
 
 
@@ -113,6 +114,14 @@ def iter_headings(lines: list[str]) -> Iterator[Heading]:
             # above are just ordinary paragraph text per CommonMark.
         list_match = _LIST_ITEM_RE.match(raw_line)
         if list_match:
+            paragraph_start = None
+            paragraph_texts = []
+            continue
+        if _BLOCKQUOTE_RE.match(raw_line):
+            # A blockquote line is never setext paragraph text: without this,
+            # "> Something" followed by a "===="/"----" line elsewhere in the
+            # document reads as that line's heading underline, producing a
+            # phantom heading whose text includes the quote marker.
             paragraph_start = None
             paragraph_texts = []
             continue

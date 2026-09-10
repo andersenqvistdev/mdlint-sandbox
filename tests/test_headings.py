@@ -196,6 +196,25 @@ def test_tab_indented_hash_is_an_indented_code_block_not_a_heading():
     assert headings == []
 
 
+def test_blockquote_line_is_not_treated_as_setext_paragraph_text():
+    # Without blockquote awareness, "> Something" reads as ordinary paragraph
+    # text, so the "======" below it is mistaken for that paragraph's setext
+    # underline, yielding a phantom H1 whose text still carries the ">".
+    lines = ["> Something", "======"]
+
+    headings = list(iter_headings(lines))
+
+    assert headings == []
+
+
+def test_paragraph_after_a_blockquote_line_still_starts_fresh():
+    lines = ["> Something", "New paragraph", "======"]
+
+    headings = list(iter_headings(lines))
+
+    assert headings == [Heading(level=1, text="New paragraph", line=2)]
+
+
 def test_front_matter_delimiter_must_be_the_literal_first_line():
     # A "---" preceded by a blank line doesn't qualify as front matter
     # (Jekyll/Hugo require it to open the file), so its "---" lines are
