@@ -33,3 +33,9 @@ def test_flags_each_empty_link_independently():
     violations = check("doc.md", lines)
 
     assert [v.line for v in violations] == [1, 3]
+
+
+def test_passes_when_link_text_is_a_code_span():
+    lines = ["See [`exists.md`](exists.md) and [**bold**](exists.md) and [plain](exists.md)."]
+
+    assert check("doc.md", lines) == []
