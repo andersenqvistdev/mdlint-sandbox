@@ -50,6 +50,20 @@ def test_language_separated_from_marker_by_a_tab_passes():
     assert check("doc.md", lines) == []
 
 
+def test_tilde_language_separated_from_marker_by_a_tab_passes():
+    lines = ["~~~\tpython", "code", "~~~"]
+
+    assert check("doc.md", lines) == []
+
+
+def test_bare_fence_with_no_content_lines_before_eof_is_flagged():
+    """A fence opened on the file's last line, with no body at all, still counts."""
+    violations = check("doc.md", ["```"])
+
+    assert len(violations) == 1
+    assert violations[0].line == 1
+
+
 def test_indented_bare_fence_is_still_flagged():
     lines = ["  ```", "code", "  ```"]
 
