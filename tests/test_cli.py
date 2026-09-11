@@ -266,6 +266,25 @@ def test_mdt02_and_mdt03_violations_are_reported_through_the_cli(tmp_path, capsy
     ]
 
 
+def test_mdf01_mdf02_mdf03_violations_are_reported_through_the_cli(tmp_path, capsys):
+    """The fence rules (MDF01-03) were only ever exercised via their own
+    rule-level unit tests. Confirm the CLI entry point surfaces all three
+    correctly too, including together in one file."""
+    doc = tmp_path / "doc.md"
+    doc.write_text("# Title\n\n```\ncode\n```\n\n~~~text\nmore\n")
+
+    exit_code = main([str(doc)])
+
+    captured = capsys.readouterr()
+    lines = captured.out.splitlines()
+    assert exit_code == 1
+    assert lines == [
+        f"{doc}:3: MDF01 fenced code block does not declare a language",
+        f"{doc}:7: MDF02 fenced code block is never closed",
+        f"{doc}:7: MDF03 fence marker '~' is inconsistent; file uses '`'",
+    ]
+
+
 def test_fix_leaves_unfixable_violations_in_place(tmp_path, capsys):
     doc = tmp_path / "doc.md"
     doc.write_text("Not a heading\n")
