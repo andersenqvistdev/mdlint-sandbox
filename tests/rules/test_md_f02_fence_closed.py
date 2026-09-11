@@ -59,6 +59,14 @@ def test_indented_fence_can_be_unclosed_too():
     assert violations[0].line == 1
 
 
+def test_fence_alone_with_no_content_lines_is_still_unclosed():
+    """A fence opened on the file's last line, with no body at all, still counts."""
+    violations = check("doc.md", ["```"])
+
+    assert len(violations) == 1
+    assert violations[0].line == 1
+
+
 def test_four_space_indented_fence_is_indented_code_not_a_fence():
     """Four spaces of indentation is an indented code block, out of scope for MDF02."""
     lines = ["    ```python", "content"]
