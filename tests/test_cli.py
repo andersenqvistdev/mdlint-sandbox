@@ -645,6 +645,34 @@ def test_invalid_config_error_takes_priority_over_invalid_ignore_pattern(tmp_pat
     assert "invalid --ignore pattern" not in captured.err
 
 
+def test_empty_config_file_exits_two(tmp_path, capsys):
+    doc = tmp_path / "doc.md"
+    doc.write_text("# Title\n")
+    config = tmp_path / ".mdlintrc"
+    config.write_text("")
+
+    exit_code = main(["--config", str(config), str(doc)])
+
+    captured = capsys.readouterr()
+    assert exit_code == 2
+    assert str(config) in captured.err
+
+
+def test_invalid_format_choice_exits_two(tmp_path, capsys):
+    doc = tmp_path / "doc.md"
+    doc.write_text("# Title\n")
+
+    # argparse's `choices=` rejects an unknown --format value before mdlint's
+    # own logic ever runs; this locks in that it surfaces as the same clean
+    # exit code 2 (via SystemExit) rather than some other status.
+    with pytest.raises(SystemExit) as excinfo:
+        main(["--format", "xml", str(doc)])
+
+    captured = capsys.readouterr()
+    assert excinfo.value.code == 2
+    assert "invalid choice" in captured.err
+
+
 def test_config_with_non_list_enabled_value_exits_two(tmp_path, capsys):
     doc = tmp_path / "doc.md"
     doc.write_text("# Title\n")

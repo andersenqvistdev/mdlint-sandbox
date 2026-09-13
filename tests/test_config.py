@@ -40,6 +40,14 @@ def test_invalid_json_raises_config_error_naming_the_path(tmp_path):
         load_enabled_rule_ids(config)
 
 
+def test_empty_file_raises_config_error(tmp_path):
+    config = tmp_path / ".mdlintrc"
+    config.write_text("")
+
+    with pytest.raises(ConfigError, match=str(config)):
+        load_enabled_rule_ids(config)
+
+
 def test_non_object_json_raises_config_error(tmp_path):
     config = tmp_path / ".mdlintrc"
     config.write_text(json.dumps(["MDS01"]))
