@@ -265,3 +265,20 @@ All predate the run window and none required changing product code.
   from 86% to 90%+"*. This is the empirical contrast the experiment was
   designed to capture.
 - G1 was correctly scheduled first; the `dependsOn` gating held G2–G9 back.
+- **The "already-satisfied brief" pattern recurred on `task-20260913111810-fd2604`
+  (2026-09-13).** Minted as `[QUEUE-FILL] G7: Four features implemented with
+  tests: --fix applies safe autofixes, .mdlintrc config file selects enabled
+  rules, --format supports text and json, --ignore accepts glob patterns` —
+  but all four were already shipped (see `git log -- src/mdlint/cli.py
+  src/mdlint/config.py`: PRs #93, #100, #102). Verified rather than assumed:
+  `pytest` 343/343 passing, `coverage run --branch` 100% line and branch on
+  `cli.py`/`config.py`/`engine.py`, `ruff check .` and `ruff format --check .`
+  clean, README's Options table and `docs/rules.md` in sync with the parser
+  (enforced by `tests/test_docs.py`), and a manual smoke test of the built
+  console script confirming `--ignore`, `--config`/`.mdlintrc`, `--format
+  json`, and `--fix` all behave as documented. `tests/test_cli.py` even
+  already has the four-flags-combined integration test
+  (`test_fix_config_format_and_ignore_flags_all_combine_correctly`). No
+  product code changed for this task — the same goal-credit gap the Run 2
+  findings describe, this time producing a zero-diff task instead of a thin
+  one-test PR.
