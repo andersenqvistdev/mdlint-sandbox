@@ -282,3 +282,16 @@ All predate the run window and none required changing product code.
   product code changed for this task — the same goal-credit gap the Run 2
   findings describe, this time producing a zero-diff task instead of a thin
   one-test PR.
+- **The same brief recurred a third time on `task-20260914000050-729af0`
+  (2026-09-14),** byte-for-byte the same G7 goal string as the 2026-09-13
+  recurrence above. Re-verified rather than assumed: `pytest` 346/346
+  passing, `ruff check .` and `ruff format --check .` clean, and the
+  README/`docs/rules.md`/parser sync tests in `tests/test_cli.py`
+  (`test_invalid_format_choice_exits_two`, the config/ignore/fix combination
+  tests) all still green. `git log -- src/mdlint/cli.py src/mdlint/config.py`
+  shows no commits since 786adcb (2026-09-06, PRs #93/#100/#102). The mint
+  source is re-emitting an already-shipped goal a third cycle running without
+  ever checking `git log` or existing test coverage for that goal's success
+  metric before minting — the admission gate's "verified pointer" check
+  apparently isn't consulting shipped state per-goal. No product code changed
+  for this task.
