@@ -72,6 +72,18 @@ def test_ignores_a_four_space_indented_line_as_a_code_block_not_a_list_item():
     assert check("doc.md", lines) == []
 
 
+def test_ignores_a_nested_bullet_under_a_wide_ordered_marker():
+    """Known limitation: the rule applies the 4-space/code-block cutoff to a
+    line's absolute indent, not indent relative to its parent item's marker
+    width. A two-digit ordered marker ("10. ") is 4 columns wide, so a
+    properly nested bullet aligned under it also lands at 4+ spaces and is
+    read as an indented code block instead of a list item, leaving it
+    outside marker-consistency checking."""
+    lines = ["10. one", "    - nested a", "    * nested b"]
+
+    assert check("doc.md", lines) == []
+
+
 def test_ignores_thematic_breaks_and_fenced_code():
     lines = ["- one", "---", "```", "* two", "```", "- three"]
 

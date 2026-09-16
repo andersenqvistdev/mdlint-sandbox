@@ -132,6 +132,17 @@ def test_less_indented_content_still_resets_the_sequence():
     assert check("doc.md", lines) == []
 
 
+def test_ignores_a_nested_ordered_item_under_a_wide_ordered_marker():
+    """Known limitation: same absolute-vs-relative indent gap as MDT01's
+    "nested under a wide ordered marker" case. A two-digit ordered marker
+    ("10. ") is 4 columns wide, so a properly nested ordered item aligned
+    under it also lands at 4+ spaces and is read as an indented code block,
+    leaving its numbering unchecked."""
+    lines = ["10. one", "    1. nested a", "    3. nested b"]
+
+    assert check("doc.md", lines) == []
+
+
 def test_fix_renumbers_across_an_indented_continuation_paragraph():
     lines = [
         "1. First item.",
