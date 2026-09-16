@@ -149,3 +149,9 @@ def test_passes_when_document_is_only_front_matter_with_no_body():
     lines = ["---", "title: Example", "---"]
 
     assert check("doc.md", lines) == []
+
+
+def test_passes_when_h1_follows_front_matter_opened_after_a_utf8_bom():
+    lines = ["﻿---", "title: Example", "---", "", "# Title", "body"]
+
+    assert check("doc.md", lines) == []
