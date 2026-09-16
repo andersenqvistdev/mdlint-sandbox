@@ -173,6 +173,18 @@ def test_unterminated_front_matter_is_scanned_normally():
     assert headings == [Heading(level=1, text="Title", line=3)]
 
 
+def test_front_matter_delimiter_is_recognized_after_a_utf8_bom():
+    # A BOM-prefixed "---" must still open front matter: without BOM
+    # stripping in front_matter_end, the comparison against the literal
+    # delimiter fails, so the closing "---" is scanned as ordinary content
+    # and misread as a setext underline for "tags: [a, b]".
+    lines = ["﻿---", "title: Example", "tags: [a, b]", "---", "", "# Title"]
+
+    headings = list(iter_headings(lines))
+
+    assert headings == [Heading(level=1, text="Title", line=6)]
+
+
 def test_three_space_indented_atx_heading_is_still_recognized():
     # CommonMark allows up to three leading spaces before a heading marker.
     headings = list(iter_headings(["   # three spaces still heading"]))
