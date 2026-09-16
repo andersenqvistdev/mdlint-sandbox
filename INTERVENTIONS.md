@@ -295,3 +295,16 @@ All predate the run window and none required changing product code.
   metric before minting — the admission gate's "verified pointer" check
   apparently isn't consulting shipped state per-goal. No product code changed
   for this task.
+- **The same brief recurred a fourth time on `task-20260916184240-3216e9`
+  (2026-09-16),** the identical G7 goal string as the 2026-09-13 and
+  2026-09-14 recurrences above. Re-verified rather than assumed: `pytest`
+  351/351 passing, `coverage run --branch` 100% line and branch on
+  `cli.py`/`config.py`/`engine.py` (99% package-wide, one unrelated branch in
+  `md_t02_ordered_list_sequential.py`), `ruff check .` and `ruff format
+  --check .` clean, and a manual smoke test of the built `mdlint` console
+  script (not just `main()` in-process) confirming `--fix`, `--config`/
+  `.mdlintrc`, `--format json`, and `--ignore` all combine correctly on a
+  fresh temp directory. `git log -- src/mdlint/cli.py src/mdlint/config.py`
+  still shows no commits since 786adcb (2026-09-06). The goal-credit gap
+  described in the 2026-09-13 entry has now produced a zero-diff task four
+  times running. No product code changed for this task.
