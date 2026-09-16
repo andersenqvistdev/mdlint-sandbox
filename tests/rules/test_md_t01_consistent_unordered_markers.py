@@ -44,6 +44,17 @@ def test_flags_each_inconsistent_marker_independently():
     assert [v.line for v in violations] == [2, 3]
 
 
+def test_flags_a_separate_later_list_using_a_different_marker():
+    """Unlike MDT02's per-list sequence, marker consistency is checked
+    globally across the whole file: unrelated content between two lists
+    does not let the second one restart with its own marker."""
+    lines = ["- one", "- two", "", "some paragraph", "", "* new list", "* continues"]
+
+    violations = check("doc.md", lines)
+
+    assert [v.line for v in violations] == [6, 7]
+
+
 def test_flags_a_nested_item_using_a_different_marker_than_the_top_level():
     lines = ["- one", "  * nested"]
 
