@@ -721,6 +721,22 @@ def test_fix_and_format_json_report_remaining_violations_after_fixing(tmp_path, 
     ]
 
 
+def test_fix_with_the_same_file_passed_twice_is_idempotent(tmp_path, capsys):
+    doc = tmp_path / "doc.md"
+    doc.write_text("# Title\n\n- one\n* two\n")
+
+    # The same path appearing twice in argv (e.g. from overlapping shell
+    # globs) must not corrupt the file: the second pass reads the
+    # already-fixed content back off disk, finds nothing left to fix, and
+    # reports clean rather than re-applying (or mangling) the autofix.
+    exit_code = main(["--fix", str(doc), str(doc)])
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert captured.out == ""
+    assert doc.read_text() == "# Title\n\n- one\n- two\n"
+
+
 def test_fix_config_format_and_ignore_flags_all_combine_correctly(tmp_path, capsys):
     kept = tmp_path / "doc.md"
     kept.write_text("# Title\n\n- one\n* two\n")
