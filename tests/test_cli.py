@@ -2,6 +2,8 @@
 
 import json
 import os
+import shutil
+import subprocess
 import sys
 
 import pytest
@@ -771,3 +773,53 @@ def test_fix_config_format_and_ignore_flags_all_combine_correctly(tmp_path, caps
     # The non-ignored file went through --fix with only the config-enabled
     # rules (MDT01's "* two" -> "- two" fix ran; MDS01 had nothing to fix).
     assert kept.read_text() == "# Title\n\n- one\n- two\n"
+
+
+@pytest.mark.skipif(
+    shutil.which("mdlint") is None,
+    reason="installed mdlint console script not found on PATH",
+)
+def test_installed_console_script_combines_fix_config_format_and_ignore(tmp_path):
+    """Exercise the packaged ``mdlint`` entry point as a real subprocess.
+
+    Every other test drives ``main()`` in-process, which never runs through
+    the ``[project.scripts]`` console_scripts wrapper that actually turns
+    ``main``'s return value into a process exit code. This is the one test
+    that invokes the installed binary directly, so a packaging regression
+    (e.g. a broken entry point) fails here even though every in-process test
+    still passes.
+    """
+    kept = tmp_path / "doc.md"
+    kept.write_text("Not a heading\n\nSome text.   \n\n\n1. one\n3. two\n")
+    ignored = tmp_path / "vendor.md"
+    ignored.write_text("Not a heading\n\n1. one\n3. two\n")
+    config = tmp_path / ".mdlintrc"
+    config.write_text(json.dumps({"enabled": ["MDS01", "MDW01", "MDT02"]}))
+
+    result = subprocess.run(
+        [
+            "mdlint",
+            "--fix",
+            "--format",
+            "json",
+            "--config",
+            str(config),
+            "--ignore",
+            "vendor.md",
+            str(kept),
+            str(ignored),
+        ],
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 1
+    payload = json.loads(result.stdout)
+    assert payload["errors"] == []
+    # --fix removed the trailing space (MDW01) and renumbered the ordered
+    # list (MDT02), but MDS01 (missing H1) has no safe autofix and is left
+    # both on disk and in the reported violations.
+    assert kept.read_text() == "Not a heading\n\nSome text.\n\n\n1. one\n2. two\n"
+    assert [v["rule_id"] for v in payload["violations"]] == ["MDS01"]
+    # --ignore excluded vendor.md entirely: untouched on disk, no violations.
+    assert ignored.read_text() == "Not a heading\n\n1. one\n3. two\n"
