@@ -141,3 +141,11 @@ def test_front_matter_delimiter_must_be_the_literal_first_line():
 
     assert len(violations) == 1
     assert violations[0].line == 2
+
+
+def test_passes_when_document_is_only_front_matter_with_no_body():
+    # No content follows the closing delimiter, so there is no non-heading
+    # line to flag — same as an empty document, not a violation.
+    lines = ["---", "title: Example", "---"]
+
+    assert check("doc.md", lines) == []

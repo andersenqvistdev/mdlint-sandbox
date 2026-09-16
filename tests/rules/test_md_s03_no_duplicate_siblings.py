@@ -93,6 +93,12 @@ def test_detects_duplicate_top_level_siblings_after_a_utf8_bom():
     assert violations[0].line == 2
 
 
+def test_passes_for_a_document_with_no_headings():
+    lines = ["Just a paragraph.", "", "Another one, no headings at all."]
+
+    assert check("doc.md", lines) == []
+
+
 def test_front_matter_closing_delimiter_does_not_create_a_phantom_sibling():
     # Without front-matter awareness, "---" after "note: y" reads as a
     # setext H2 underline, which would falsely collide with a real "note: y"
