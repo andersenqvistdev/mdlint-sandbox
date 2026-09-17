@@ -347,3 +347,24 @@ All predate the run window and none required changing product code.
   reinforcing that the admission gate's "verified pointer" check isn't
   consulting shipped state per-goal generally, not just for G7. No product
   code changed for this task.
+- **The "already-satisfied brief" pattern now also confirmed for G2 on
+  `task-20260917165202-257184` (2026-09-17).** Minted as `[QUEUE-FILL] G2:
+  Three rules implemented with tests: first line is a top-level heading,
+  heading levels increment by one, no duplicate sibling headings` — but all
+  three (MDS01, MDS02, MDS03) were already shipped in PR #4 (2026-08-03) and
+  have only received incremental test/robustness follow-ups since (`git log
+  --follow` on each rule file: MDS01 last touched by PR #110, MDS02 and
+  MDS03 have received no commits since PR #4). Verified rather than assumed:
+  `pytest tests/` 362/362 passing, `coverage run` line coverage 100% on
+  `md_s01_first_line_heading.py`, `md_s02_heading_increment.py`,
+  `md_s03_no_duplicate_siblings.py`, and 100% across the whole `mdlint`
+  package (800/800 statements), `ruff check .` and `ruff format --check .`
+  clean, all three rules registered in `rules/__init__.py`, documented with
+  passing/failing examples in `docs/rules.md` (§MDS01–MDS03) and enforced in
+  sync by `tests/test_docs.py`, and exercised together end-to-end by
+  `tests/test_engine.py::test_aggregates_all_three_structure_rules_sorted_by_line`
+  and by CLI-level tests in `tests/test_cli.py`. This is a third distinct
+  goal (after G7 and G6) hitting the same goal-credit gap described in the
+  2026-09-13 entry — the admission gate's "verified pointer" check still
+  isn't consulting shipped state per-goal. No product code changed for this
+  task.
