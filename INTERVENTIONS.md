@@ -324,3 +324,26 @@ All predate the run window and none required changing product code.
   pointer" check still isn't consulting shipped state per-goal three weeks
   after the first recurrence was logged. No product code changed for this
   task.
+- **The "already-satisfied brief" pattern now also confirmed for G6 on
+  `task-20260917042028-e075b4` (2026-09-17).** Minted as `[QUEUE-FILL] G6:
+  Three rules implemented with tests: consistent unordered list markers,
+  ordered list numbering is sequential, table rows have equal column
+  counts` — but all three (MDT01, MDT02, MDT03) were already shipped in PR
+  #9 (2026-08-15) and have only received incremental test/robustness
+  follow-ups since (`git log --follow` on each rule file: MDT01 last
+  touched by PR #133, MDT02 by PR #103, MDT03 by PR #115 — none add new
+  behavior, only tests). Verified rather than assumed: `pytest` 361/361
+  passing (`PYTHONPATH=src pytest tests/`, since the repo's own `.venv`
+  lacks `pytest`/`ruff` — the global installs at `~/.local/bin` were used
+  instead), `ruff check .` and `ruff format --check .` clean, all three
+  rules registered in `rules/__init__.py`, documented with passing/failing
+  examples in `docs/rules.md` (§MDT01–MDT03), and counted in README's
+  "16 rules across five families." Manually smoke-tested both in-process
+  and via the installed `.venv/bin/mdlint` console script on a crafted file
+  mixing an inconsistent bullet marker, a broken ordered-list sequence, and
+  a ragged table row — all three violations reported at the exact expected
+  line and rule id, exit code 1. This is the same goal-credit gap the
+  2026-09-13 G7 entry describes, now observed on a second goal (G6),
+  reinforcing that the admission gate's "verified pointer" check isn't
+  consulting shipped state per-goal generally, not just for G7. No product
+  code changed for this task.
