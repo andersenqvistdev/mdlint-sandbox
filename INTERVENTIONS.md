@@ -308,3 +308,19 @@ All predate the run window and none required changing product code.
   still shows no commits since 786adcb (2026-09-06). The goal-credit gap
   described in the 2026-09-13 entry has now produced a zero-diff task four
   times running. No product code changed for this task.
+- **The same brief recurred a fifth time on `task-20260917010111-d45046`
+  (2026-09-17),** the identical G7 goal string as the four recurrences
+  above. Re-verified rather than assumed: `pytest` 355/355 passing,
+  `coverage run --branch` 100% line and branch on
+  `cli.py`/`config.py`/`engine.py` (99% package-wide, the same pre-existing
+  unrelated branch gap in `md_t02_ordered_list_sequential.py:70->74`),
+  `ruff check .` and `ruff format --check .` clean, and
+  `tests/test_cli.py::test_installed_console_script_combines_fix_config_format_and_ignore`
+  (which exercises the packaged `mdlint` binary as a subprocess, not just
+  `main()` in-process) passing. `git log -- src/mdlint/cli.py
+  src/mdlint/config.py` still shows no commits since 786adcb (2026-09-06).
+  Five consecutive cycles minting the same already-shipped goal string is
+  now a stable pattern, not a fluke — the admission gate's "verified
+  pointer" check still isn't consulting shipped state per-goal three weeks
+  after the first recurrence was logged. No product code changed for this
+  task.
