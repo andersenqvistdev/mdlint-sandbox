@@ -115,3 +115,15 @@ def test_front_matter_closing_delimiter_does_not_create_a_phantom_sibling():
     lines = ["---", "note: y", "---", "# Title", "## note: y"]
 
     assert check("doc.md", lines) == []
+
+
+def test_fails_for_two_empty_text_siblings():
+    # "##" and "##  " both normalize to empty heading text; they are still
+    # siblings under the same parent, so the second is a duplicate.
+    lines = ["# Title", "##", "##  "]
+
+    violations = check("doc.md", lines)
+
+    assert len(violations) == 1
+    assert violations[0].line == 3
+    assert violations[0].message == "duplicate sibling heading: ''"
