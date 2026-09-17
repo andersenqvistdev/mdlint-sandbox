@@ -83,6 +83,15 @@ def test_blockquote_line_does_not_create_a_phantom_heading_to_jump_from():
     assert check("doc.md", lines) == []
 
 
+def test_indented_code_block_does_not_create_a_phantom_heading_to_jump_from():
+    # Without indented-code awareness, "    code" followed by "----" reads as
+    # a setext H2, making the real "#### Deep" heading look like a false H2
+    # -> H4 skip instead of the document's very first heading.
+    lines = ["    code", "----", "#### Deep"]
+
+    assert check("doc.md", lines) == []
+
+
 def test_front_matter_closing_delimiter_does_not_create_a_phantom_heading():
     # Without front-matter awareness, "---" after "x: y" reads as a setext H2
     # underline, so the real first heading ("#### Deep") would falsely look

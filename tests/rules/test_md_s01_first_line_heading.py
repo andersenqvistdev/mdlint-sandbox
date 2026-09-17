@@ -155,3 +155,15 @@ def test_passes_when_h1_follows_front_matter_opened_after_a_utf8_bom():
     lines = ["﻿---", "title: Example", "---", "", "# Title", "body"]
 
     assert check("doc.md", lines) == []
+
+
+def test_fails_when_document_opens_with_an_indented_code_block_and_underline():
+    # "    indented code" + "=====" is a code block plus an ordinary
+    # paragraph per CommonMark, not a setext H1 — so the first line is
+    # correctly flagged as not a heading, not silently accepted as one.
+    lines = ["    indented code", "====="]
+
+    violations = check("doc.md", lines)
+
+    assert len(violations) == 1
+    assert violations[0].line == 1

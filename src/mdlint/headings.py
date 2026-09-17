@@ -31,6 +31,7 @@ _TRAILING_HASHES_RE = re.compile(r"(?:^|\s)#+\s*$")
 _SETEXT_UNDERLINE_RE = re.compile(r"^ {0,3}(=+|-+)[ \t]*$")
 _LIST_ITEM_RE = re.compile(r"^ {0,3}([-*+]|\d{1,9}[.)])(\s+)\S")
 _BLOCKQUOTE_RE = re.compile(r"^ {0,3}>")
+_INDENTED_CODE_RE = re.compile(r"^(?: {4,}|\t)\S")
 _FRONT_MATTER_DELIMS = ("---", "+++")
 
 
@@ -124,6 +125,16 @@ def iter_headings(lines: list[str]) -> Iterator[Heading]:
             # phantom heading whose text includes the quote marker.
             paragraph_start = None
             paragraph_texts = []
+            continue
+        if paragraph_start is None and _INDENTED_CODE_RE.match(raw_line):
+            # A 4+-space indented line that *opens* a new block is an
+            # indented code block, not setext paragraph text (CommonMark:
+            # indented code cannot interrupt a paragraph, but it also can't
+            # start one that later "becomes" setext). Without this, a code
+            # block immediately followed by a "===="/"----" line is misread
+            # as that line's heading text. A line indented this way that
+            # *continues* an already-open paragraph is still a lazy
+            # continuation of it, so it falls through to the append below.
             continue
         if paragraph_start is None:
             paragraph_start = lineno
