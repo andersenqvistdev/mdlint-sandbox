@@ -208,6 +208,40 @@ def test_tab_indented_hash_is_an_indented_code_block_not_a_heading():
     assert headings == []
 
 
+def test_indented_code_block_is_not_treated_as_setext_paragraph_text():
+    # An indented code block can't interrupt-and-become a paragraph: per
+    # CommonMark, "    indented code" followed by "=====" is a code block
+    # plus a separate ordinary paragraph, not a setext H1. Without this, the
+    # indented line is (mis)treated as opening paragraph text and the
+    # underline turns it into a phantom heading.
+    lines = ["    indented code", "====="]
+
+    headings = list(iter_headings(lines))
+
+    assert headings == []
+
+
+def test_tab_indented_line_is_not_treated_as_setext_paragraph_text():
+    # A leading tab reaches the same indented-code-block threshold as four
+    # spaces, so this must not become a phantom heading either.
+    lines = ["\tindented code", "====="]
+
+    headings = list(iter_headings(lines))
+
+    assert headings == []
+
+
+def test_indented_line_continuing_a_paragraph_still_forms_a_setext_heading():
+    # Indented code cannot *interrupt* an already-open paragraph — per
+    # CommonMark this is a lazy continuation line, so the paragraph (and the
+    # setext heading it forms) still includes it.
+    lines = ["Title", "    indented", "====="]
+
+    headings = list(iter_headings(lines))
+
+    assert headings == [Heading(level=1, text="Title indented", line=1)]
+
+
 def test_blockquote_line_is_not_treated_as_setext_paragraph_text():
     # Without blockquote awareness, "> Something" reads as ordinary paragraph
     # text, so the "======" below it is mistaken for that paragraph's setext

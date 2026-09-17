@@ -99,6 +99,15 @@ def test_passes_for_a_document_with_no_headings():
     assert check("doc.md", lines) == []
 
 
+def test_indented_code_block_does_not_create_a_phantom_sibling():
+    # Without indented-code awareness, "    note: y" followed by "----" reads
+    # as a setext H2 underline, which would falsely collide with a real
+    # "note: y" heading later in the document as a duplicate sibling.
+    lines = ["    note: y", "----", "# Title", "## note: y"]
+
+    assert check("doc.md", lines) == []
+
+
 def test_front_matter_closing_delimiter_does_not_create_a_phantom_sibling():
     # Without front-matter awareness, "---" after "note: y" reads as a
     # setext H2 underline, which would falsely collide with a real "note: y"
