@@ -35,6 +35,19 @@ def test_flags_each_inconsistent_fence_independently():
     assert [v.line for v in violations] == [4, 10]
 
 
+def test_fails_when_an_unclosed_trailing_fence_uses_a_different_marker():
+    """MDF03 must also flag a mismatched marker on a fence that MDF02 already
+    reports as unclosed — the two rules are independent and both apply.
+    """
+    lines = ["```python", "one", "```", "~~~text", "two"]
+
+    violations = check("doc.md", lines)
+
+    assert len(violations) == 1
+    assert violations[0].rule_id == RULE_ID
+    assert violations[0].line == 4
+
+
 def test_fix_rewrites_inconsistent_markers_to_match_the_first():
     lines = ["```python", "one", "```", "~~~text", "two", "~~~"]
 
