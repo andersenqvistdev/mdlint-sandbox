@@ -261,6 +261,20 @@ def test_paragraph_after_a_blockquote_line_still_starts_fresh():
     assert headings == [Heading(level=1, text="New paragraph", line=2)]
 
 
+def test_six_hashes_is_a_valid_h6():
+    headings = list(iter_headings(["###### Deepest heading"]))
+
+    assert headings == [Heading(level=6, text="Deepest heading", line=1)]
+
+
+def test_seven_or_more_hashes_is_not_a_valid_atx_heading():
+    # CommonMark caps ATX headings at six '#' characters; a seventh turns the
+    # line into ordinary paragraph text, not an (invalid) H7.
+    headings = list(iter_headings(["####### Not a heading"]))
+
+    assert headings == []
+
+
 def test_front_matter_delimiter_must_be_the_literal_first_line():
     # A "---" preceded by a blank line doesn't qualify as front matter
     # (Jekyll/Hugo require it to open the file), so its "---" lines are

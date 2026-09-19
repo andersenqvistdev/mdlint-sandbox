@@ -157,6 +157,18 @@ def test_passes_when_h1_follows_front_matter_opened_after_a_utf8_bom():
     assert check("doc.md", lines) == []
 
 
+def test_fails_when_first_line_has_seven_hashes():
+    # Seven '#' characters exceed CommonMark's H6 cap, so this line is
+    # ordinary paragraph text, not a (invalid) heading — and must still be
+    # flagged as a non-heading first line rather than silently accepted.
+    lines = ["####### Not a heading", "# Title"]
+
+    violations = check("doc.md", lines)
+
+    assert len(violations) == 1
+    assert violations[0].line == 1
+
+
 def test_fails_when_document_opens_with_an_indented_code_block_and_underline():
     # "    indented code" + "=====" is a code block plus an ordinary
     # paragraph per CommonMark, not a setext H1 — so the first line is
