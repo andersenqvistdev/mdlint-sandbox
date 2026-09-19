@@ -101,3 +101,16 @@ def test_a_backtick_line_inside_a_tilde_fence_does_not_desync_tracking():
     items = list(iter_ordered_list_items(lines))
 
     assert [item.line for item in items] == [5]
+
+
+def test_ignores_a_tab_indented_bullet():
+    """Known limitation: both marker regexes only recognize space
+    indentation (" {0,3}"). A leading tab isn't a space character, so a
+    tab-indented bullet isn't matched as a list item at all, even though
+    CommonMark would still treat a single leading tab as within the
+    0-3-space indent budget."""
+    assert list(iter_unordered_list_items(["\t- item"])) == []
+
+
+def test_ignores_a_tab_indented_ordered_item():
+    assert list(iter_ordered_list_items(["\t1. item"])) == []

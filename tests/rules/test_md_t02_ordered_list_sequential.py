@@ -171,3 +171,30 @@ def test_fix_resets_after_unrelated_content_and_skips_blank_lines():
 
     assert fixed == ["1. one", "", "2. two", "text", "5. new", "6. new too"]
     assert check("doc.md", fixed) == []
+
+
+def test_leading_zero_numbers_are_compared_numerically():
+    """ "01." parses to the number 1, so a zero-padded sequence is sequential
+    exactly when its numeric values are, regardless of the padding width."""
+    lines = ["01. one", "02. two", "03. three"]
+
+    assert check("doc.md", lines) == []
+
+
+def test_leading_zero_numbers_still_flag_a_numeric_skip():
+    lines = ["01. one", "03. two"]
+
+    violations = check("doc.md", lines)
+
+    assert len(violations) == 1
+    assert violations[0].line == 2
+    assert "expected 2" in violations[0].message
+
+
+def test_fix_drops_leading_zero_padding_when_renumbering():
+    """Known limitation: fix() writes the expected number's plain decimal
+    form, so renumbering a zero-padded item loses its original padding
+    width instead of preserving it (e.g. "03." becomes "2.", not "02.")."""
+    lines = ["01. one", "03. two"]
+
+    assert fix(lines) == ["01. one", "2. two"]
