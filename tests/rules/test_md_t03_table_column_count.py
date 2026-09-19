@@ -217,6 +217,19 @@ def test_unmatched_backtick_run_is_treated_as_literal_text():
     assert check("doc.md", lines) == []
 
 
+def test_escaped_pipe_at_row_end_is_not_a_separator_without_a_closing_pipe():
+    r"""A table row without a trailing "|" still has its last cell parsed
+    for escapes: "b\|" is one cell (an escaped pipe), not a separator
+    followed by an empty column."""
+    lines = [
+        "| A | B |",
+        "| --- | --- |",
+        r"| a | b\|",
+    ]
+
+    assert check("doc.md", lines) == []
+
+
 def test_checks_multiple_tables_independently():
     lines = [
         "| A | B |",
