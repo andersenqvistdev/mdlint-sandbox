@@ -751,6 +751,21 @@ def test_fix_only_applies_fixes_for_rules_enabled_by_config(tmp_path):
     assert doc.read_text() == "# Title\n\n- one\n* two\n"
 
 
+def test_fix_with_empty_enabled_list_leaves_the_file_untouched(tmp_path):
+    doc = tmp_path / "doc.md"
+    doc.write_text("Not a heading\n\n- one\n* two  \n")
+    config = tmp_path / ".mdlintrc"
+    config.write_text(json.dumps({"enabled": []}))
+
+    # With every rule disabled, --fix has no fixer to run and lint_lines has
+    # nothing to check: the file must come out byte-for-byte identical, not
+    # just "no violations reported".
+    exit_code = main(["--fix", "--config", str(config), str(doc)])
+
+    assert exit_code == 0
+    assert doc.read_text() == "Not a heading\n\n- one\n* two  \n"
+
+
 def test_fix_and_format_json_report_remaining_violations_after_fixing(tmp_path, capsys):
     doc = tmp_path / "doc.md"
     doc.write_text("Not a heading\n\n- one\n* two\n")
