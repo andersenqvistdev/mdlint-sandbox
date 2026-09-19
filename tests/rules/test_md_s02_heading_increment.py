@@ -92,6 +92,15 @@ def test_indented_code_block_does_not_create_a_phantom_heading_to_jump_from():
     assert check("doc.md", lines) == []
 
 
+def test_seven_hash_line_is_not_a_phantom_heading_to_jump_from():
+    # "#######" exceeds CommonMark's H6 cap and is plain text, not a heading
+    # at all, so it must not be treated as an H7 that the next real heading
+    # then appears to "jump" up or down from.
+    lines = ["# Title", "####### Not a heading", "## Section"]
+
+    assert check("doc.md", lines) == []
+
+
 def test_front_matter_closing_delimiter_does_not_create_a_phantom_heading():
     # Without front-matter awareness, "---" after "x: y" reads as a setext H2
     # underline, so the real first heading ("#### Deep") would falsely look
