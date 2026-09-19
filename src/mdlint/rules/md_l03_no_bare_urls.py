@@ -15,7 +15,7 @@ RULE_ID = "MDL03"
 
 _AUTOLINK_RE = re.compile(r"<[a-zA-Z][a-zA-Z0-9+.-]*:[^\s<>]+>")
 _BARE_URL_RE = re.compile(r"https?://[^\s<>]+")
-_TRAILING_PUNCTUATION = ").,;:!?]}\"'"
+_TRAILING_PUNCTUATION = ").,;:!?]}\"'`"
 
 
 def check(file: str, lines: list[str]) -> list[Violation]:
