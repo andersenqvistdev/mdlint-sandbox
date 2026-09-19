@@ -37,7 +37,12 @@ Each line has the form `FILE:LINE: RULE_ID message`.
 |------|---------|
 | `0`  | No violations found |
 | `1`  | One or more violations found |
-| `2`  | A file couldn't be read, or the config file is invalid |
+| `2`  | A file couldn't be read, or the config file or an `--ignore` pattern is invalid |
+
+With `--format json`, a fatal error (invalid config or `--ignore` pattern) is
+still printed to stderr as before, but is also reported on stdout as
+`{"violations": [], "errors": [], "error": "<message>"}` so JSON-format
+callers that don't read stderr still get a structured, parseable result.
 
 ### Options
 

@@ -675,6 +675,55 @@ def test_invalid_format_choice_exits_two(tmp_path, capsys):
     assert "invalid choice" in captured.err
 
 
+def test_format_json_reports_invalid_config_as_structured_data_on_stdout(tmp_path, capsys):
+    doc = tmp_path / "doc.md"
+    doc.write_text("# Title\n")
+    config = tmp_path / ".mdlintrc"
+    config.write_text("{not json")
+
+    # A JSON-format caller may not read stderr at all, so a config error
+    # must still surface as parseable JSON on stdout, not silence there.
+    exit_code = main(["--format", "json", "--config", str(config), str(doc)])
+
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    assert exit_code == 2
+    assert str(config) in captured.err
+    assert payload["violations"] == []
+    assert payload["errors"] == []
+    assert str(config) in payload["error"]
+
+
+def test_format_json_reports_invalid_ignore_pattern_as_structured_data_on_stdout(tmp_path, capsys):
+    doc = tmp_path / "doc.md"
+    doc.write_text("# Title\n")
+
+    exit_code = main(["--format", "json", "--ignore", "", str(doc)])
+
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    assert exit_code == 2
+    assert payload["violations"] == []
+    assert payload["errors"] == []
+    assert "invalid --ignore pattern" in payload["error"]
+
+
+def test_format_text_config_error_does_not_print_to_stdout(tmp_path, capsys):
+    doc = tmp_path / "doc.md"
+    doc.write_text("# Title\n")
+    config = tmp_path / ".mdlintrc"
+    config.write_text("{not json")
+
+    # Default (text) format must be unaffected: the structured payload is a
+    # JSON-format-only addition, not a change to plain-text behavior.
+    exit_code = main(["--config", str(config), str(doc)])
+
+    captured = capsys.readouterr()
+    assert exit_code == 2
+    assert captured.out == ""
+    assert str(config) in captured.err
+
+
 def test_config_with_non_list_enabled_value_exits_two(tmp_path, capsys):
     doc = tmp_path / "doc.md"
     doc.write_text("# Title\n")

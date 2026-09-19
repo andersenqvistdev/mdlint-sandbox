@@ -67,6 +67,19 @@ def _print_text(violations: list[Violation]) -> None:
         print(f"{violation.file}:{violation.line}: {violation.rule_id} {violation.message}")
 
 
+def _print_fatal_error(message: str, format_: str) -> None:
+    """Report a fatal (pre-lint) error, e.g. a bad --config or --ignore value.
+
+    Always goes to stderr. Additionally emitted as JSON on stdout when
+    --format json is requested, so JSON-format callers (who may not read
+    stderr) still get a structured, parseable payload instead of silence.
+    """
+    print(f"mdlint: {message}", file=sys.stderr)
+    if format_ == "json":
+        payload = {"violations": [], "errors": [], "error": message}
+        print(json.dumps(payload, indent=2))
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Build the mdlint argument parser.
 
@@ -97,12 +110,12 @@ def main(argv: list[str] | None = None) -> int:
     try:
         rules = _resolve_rules(Path(args.config))
     except ConfigError as err:
-        print(f"mdlint: {err}", file=sys.stderr)
+        _print_fatal_error(str(err), args.format)
         return 2
 
     ignore_error = _check_ignore_patterns(args.ignore)
     if ignore_error is not None:
-        print(f"mdlint: {ignore_error}", file=sys.stderr)
+        _print_fatal_error(ignore_error, args.format)
         return 2
 
     had_violations = False
