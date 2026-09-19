@@ -467,6 +467,22 @@ def test_ignore_with_empty_pattern_exits_two_instead_of_crashing(tmp_path, capsy
     assert captured.out == ""
 
 
+def test_ignore_extension_glob_skips_every_matching_file(tmp_path, capsys):
+    first = tmp_path / "a.md"
+    first.write_text("Not a heading\n")
+    second = tmp_path / "b.md"
+    second.write_text("Not a heading\n")
+
+    # A bare "*.md" pattern is a legitimate glob (e.g. to silence a run over
+    # a directory that's entirely generated content); it should zero out the
+    # whole file list rather than being treated as too broad to match.
+    exit_code = main(["--ignore", "*.md", str(first), str(second)])
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert captured.out == ""
+
+
 def test_multiple_ignore_flags_each_skip_their_matching_file(tmp_path, capsys):
     changelog = tmp_path / "CHANGELOG.md"
     changelog.write_text("Not a heading\n")
@@ -567,6 +583,26 @@ def test_default_config_is_discovered_in_the_current_directory(tmp_path, capsys,
     monkeypatch.chdir(tmp_path)
 
     exit_code = main(["doc.md"])
+
+    captured = capsys.readouterr()
+    lines = captured.out.splitlines()
+    assert exit_code == 1
+    assert len(lines) == 1
+    assert "MDS02" in lines[0]
+
+
+def test_explicit_config_flag_overrides_a_default_mdlintrc_in_cwd(tmp_path, capsys, monkeypatch):
+    doc = tmp_path / "doc.md"
+    doc.write_text("Not a heading\n# Title\n### Too deep\n")
+    (tmp_path / ".mdlintrc").write_text(json.dumps({"enabled": ["MDS01"]}))
+    other_config = tmp_path / "other.mdlintrc"
+    other_config.write_text(json.dumps({"enabled": ["MDS02"]}))
+    monkeypatch.chdir(tmp_path)
+
+    # A default .mdlintrc sits right next to the explicit --config target, so
+    # this only proves the explicit flag wins if it's the *other* file's
+    # rule set that actually shows up in the output.
+    exit_code = main(["--config", str(other_config), "doc.md"])
 
     captured = capsys.readouterr()
     lines = captured.out.splitlines()
