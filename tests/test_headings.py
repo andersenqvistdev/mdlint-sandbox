@@ -275,6 +275,23 @@ def test_seven_or_more_hashes_is_not_a_valid_atx_heading():
     assert headings == []
 
 
+def test_trailing_hash_without_preceding_space_is_not_stripped():
+    # CommonMark's closing sequence requires at least one space before it;
+    # "C#" ends in a hash with no preceding space, so it's the literal
+    # heading text (e.g. the language name), not a closing sequence to strip.
+    headings = list(iter_headings(["## C#"]))
+
+    assert headings == [Heading(level=2, text="C#", line=1)]
+
+
+def test_trailing_hash_with_preceding_space_is_still_stripped():
+    # Contrast with the case above: a *space*-separated trailing hash is a
+    # valid (if minimal) closing sequence and must still be stripped.
+    headings = list(iter_headings(["## C # "]))
+
+    assert headings == [Heading(level=2, text="C", line=1)]
+
+
 def test_front_matter_delimiter_must_be_the_literal_first_line():
     # A "---" preceded by a blank line doesn't qualify as front matter
     # (Jekyll/Hugo require it to open the file), so its "---" lines are
