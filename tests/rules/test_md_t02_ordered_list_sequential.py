@@ -132,6 +132,26 @@ def test_less_indented_content_still_resets_the_sequence():
     assert check("doc.md", lines) == []
 
 
+def test_tab_indented_continuation_paragraph_resets_the_sequence():
+    """Known limitation: `_leading_space_count` only counts literal space
+    characters, so a tab-indented continuation line measures as indent 0 —
+    "less indented" than the item's own 0-indent marker — and ends the
+    sequence, even though CommonMark would expand the tab to several
+    columns and still treat the line as inside the list item. A
+    space-indented continuation (see
+    test_indented_continuation_paragraph_does_not_break_the_sequence) does
+    not have this problem."""
+    lines = [
+        "1. First item.",
+        "",
+        "\tContinuation paragraph for item 1.",
+        "",
+        "3. Sequence was reset, so no violation is raised here.",
+    ]
+
+    assert check("doc.md", lines) == []
+
+
 def test_ignores_a_nested_ordered_item_under_a_wide_ordered_marker():
     """Known limitation: same absolute-vs-relative indent gap as MDT01's
     "nested under a wide ordered marker" case. A two-digit ordered marker
