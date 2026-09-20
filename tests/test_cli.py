@@ -525,6 +525,23 @@ def test_config_restricts_enabled_rules(tmp_path, capsys):
     assert "MDS02" in lines[0]
 
 
+def test_config_enabled_list_with_duplicate_rule_id_runs_that_rule_once(tmp_path, capsys):
+    doc = tmp_path / "doc.md"
+    doc.write_text("Not a heading\n# Title\n### Too deep\n")
+    config = tmp_path / ".mdlintrc"
+    # "enabled" going through a set() internally means a repeated id must not
+    # produce duplicate violations for the same line.
+    config.write_text(json.dumps({"enabled": ["MDS02", "MDS02"]}))
+
+    exit_code = main(["--config", str(config), str(doc)])
+
+    captured = capsys.readouterr()
+    lines = captured.out.splitlines()
+    assert exit_code == 1
+    assert len(lines) == 1
+    assert "MDS02" in lines[0]
+
+
 def test_config_with_no_enabled_key_runs_every_rule(tmp_path, capsys):
     doc = tmp_path / "doc.md"
     doc.write_text("Not a heading\n")
@@ -694,6 +711,19 @@ def test_empty_config_file_exits_two(tmp_path, capsys):
     captured = capsys.readouterr()
     assert exit_code == 2
     assert str(config) in captured.err
+
+
+def test_no_files_argument_exits_two_via_argparse(capsys):
+    # `files` is a required nargs="+" positional, so calling mdlint with none
+    # never reaches mdlint's own logic at all; this locks in that argparse's
+    # own usage error still surfaces as the same exit code 2 contract as
+    # every other invalid-invocation case (bad --format, bad --config, etc.).
+    with pytest.raises(SystemExit) as excinfo:
+        main([])
+
+    captured = capsys.readouterr()
+    assert excinfo.value.code == 2
+    assert "the following arguments are required: files" in captured.err
 
 
 def test_invalid_format_choice_exits_two(tmp_path, capsys):
