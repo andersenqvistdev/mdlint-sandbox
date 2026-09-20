@@ -117,6 +117,15 @@ def test_front_matter_closing_delimiter_does_not_create_a_phantom_sibling():
     assert check("doc.md", lines) == []
 
 
+def test_trailing_hash_without_preceding_space_is_not_stripped_to_a_false_duplicate():
+    # "## C#" must keep its literal "C#" text (no preceding space before the
+    # hash, so it isn't a closing sequence); it must not collide with an
+    # unrelated "## C" sibling as if both had been stripped to "C".
+    lines = ["# Title", "## C#", "## C"]
+
+    assert check("doc.md", lines) == []
+
+
 def test_fails_for_two_empty_text_siblings():
     # "##" and "##  " both normalize to empty heading text; they are still
     # siblings under the same parent, so the second is a duplicate.
