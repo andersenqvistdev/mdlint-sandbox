@@ -320,6 +320,13 @@ The first fence character (backtick or tilde) encountered in a document sets
 the expected marker; every later fence opened with the other character is
 flagged.
 
+The autofix only converts a block when doing so cannot change where the block
+ends. It leaves a block untouched (and still reported) if one of its content
+lines would become a valid closing fence after conversion — for example a
+`~~~markdown` block that contains a bare ```` ``` ```` line — or if the
+block is a tilde fence whose info string contains a backtick, which is not
+legal on a backtick fence. Fix those by hand.
+
 Passing:
 
 ````markdown

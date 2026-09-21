@@ -287,6 +287,33 @@ def test_mdf01_mdf02_mdf03_violations_are_reported_through_the_cli(tmp_path, cap
     ]
 
 
+def test_fix_rewrites_inconsistent_fence_markers_through_the_cli(tmp_path, capsys):
+    doc = tmp_path / "doc.md"
+    doc.write_text("# Title\n\n```text\none\n```\n\n~~~text\ntwo\n~~~\n")
+
+    exit_code = main(["--fix", str(doc)])
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert captured.out == ""
+    assert doc.read_text() == "# Title\n\n```text\none\n```\n\n```text\ntwo\n```\n"
+
+
+def test_fix_skips_an_unsafe_fence_conversion_and_still_reports_it(tmp_path, capsys):
+    """Converting the ~~~ block would let its inner ``` line close it early, so
+    the CLI must leave the file alone and keep reporting MDF03."""
+    doc = tmp_path / "doc.md"
+    original = "# Title\n\n```text\none\n```\n\n~~~markdown\n```\ninner\n```\n~~~\n"
+    doc.write_text(original)
+
+    exit_code = main(["--fix", str(doc)])
+
+    captured = capsys.readouterr()
+    assert exit_code == 1
+    assert captured.out == f"{doc}:7: MDF03 fence marker '~' is inconsistent; file uses '`'\n"
+    assert doc.read_text() == original
+
+
 def test_fix_leaves_unfixable_violations_in_place(tmp_path, capsys):
     doc = tmp_path / "doc.md"
     doc.write_text("Not a heading\n")
