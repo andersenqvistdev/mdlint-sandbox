@@ -262,3 +262,39 @@ def test_fenced_line_numbers_ignores_prose_that_only_looks_like_a_fence():
     lines = ["``` not `a` fence", "text", "```python", "code", "```"]
 
     assert fenced_line_numbers(lines) == {3, 4, 5}
+
+
+def test_closing_run_longer_than_a_tilde_opener_closes_it():
+    lines = ["~~~text", "content", "~~~~~~"]
+
+    blocks = list(iter_fence_blocks(lines))
+
+    assert blocks == [FenceBlock(marker="~", length=3, info="text", open_line=1, close_line=3)]
+
+
+def test_info_string_may_be_an_attribute_block():
+    lines = ["``` {.python}", "code", "```"]
+
+    blocks = list(iter_fence_blocks(lines))
+
+    assert blocks == [FenceBlock(marker="`", length=3, info="{.python}", open_line=1, close_line=3)]
+
+
+def test_a_closing_line_with_an_info_string_at_eof_leaves_the_fence_unclosed():
+    lines = ["```", "content", "```python"]
+
+    blocks = list(iter_fence_blocks(lines))
+
+    assert blocks == [FenceBlock(marker="`", length=3, info="", open_line=1, close_line=None)]
+
+
+def test_fenced_line_numbers_covers_an_outer_fence_that_contains_a_shorter_one():
+    lines = ["````markdown", "```", "inner", "```", "````", "prose"]
+
+    assert fenced_line_numbers(lines) == {1, 2, 3, 4, 5}
+
+
+def test_fenced_line_numbers_is_not_desynced_by_a_tilde_line_inside_a_backtick_fence():
+    lines = ["```python", "~~~", "code", "```", "prose", "~~~text", "more", "~~~"]
+
+    assert fenced_line_numbers(lines) == {1, 2, 3, 4, 6, 7, 8}

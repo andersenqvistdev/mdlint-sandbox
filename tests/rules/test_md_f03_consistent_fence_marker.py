@@ -206,3 +206,66 @@ def test_fix_does_not_mutate_its_input():
 
 def test_fix_of_an_empty_document_is_a_noop():
     assert fix([]) == []
+
+
+def test_fence_length_does_not_affect_marker_consistency():
+    lines = ["```python", "a", "```", "````text", "b", "````"]
+
+    assert check("doc.md", lines) == []
+
+
+def test_indentation_does_not_affect_marker_consistency():
+    lines = ["```python", "a", "```", "  ```text", "b", "  ```"]
+
+    assert check("doc.md", lines) == []
+
+
+def test_tilde_fence_with_backticks_in_its_info_still_sets_the_expected_marker():
+    lines = ["~~~ `x`", "a", "~~~", "```python", "b", "```"]
+
+    violations = check("doc.md", lines)
+
+    assert [v.line for v in violations] == [4]
+    assert violations[0].message == "fence marker '`' is inconsistent; file uses '~'"
+
+
+def test_fix_preserves_trailing_whitespace_on_the_closing_line():
+    lines = ["```python", "a", "```", "~~~text", "b", "~~~  "]
+
+    assert fix(lines) == ["```python", "a", "```", "```text", "b", "```  "]
+
+
+def test_fix_preserves_a_closing_run_longer_than_the_opening_run():
+    lines = ["```python", "a", "```", "~~~text", "b", "~~~~~~"]
+
+    fixed = fix(lines)
+
+    assert fixed == ["```python", "a", "```", "```text", "b", "``````"]
+    assert check("doc.md", fixed) == []
+
+
+def test_fix_converts_every_inconsistent_block_in_a_three_block_file():
+    lines = ["```a", "x", "```", "~~~b", "y", "~~~", "~~~~c", "z", "~~~~"]
+
+    fixed = fix(lines)
+
+    assert fixed == ["```a", "x", "```", "```b", "y", "```", "````c", "z", "````"]
+    assert check("doc.md", fixed) == []
+
+
+def test_fix_converts_backtick_fences_to_tilde_when_tilde_comes_first():
+    lines = ["~~~text", "a", "~~~", "```python", "b", "```"]
+
+    fixed = fix(lines)
+
+    assert fixed == ["~~~text", "a", "~~~", "~~~python", "b", "~~~"]
+    assert check("doc.md", fixed) == []
+
+
+def test_fix_leaves_non_fence_lines_untouched():
+    lines = ["# Title", "", "```python", "a", "```", "", "prose", "~~~text", "b", "~~~"]
+
+    fixed = fix(lines)
+
+    assert fixed[:3] == lines[:3]
+    assert fixed[5:7] == lines[5:7]
