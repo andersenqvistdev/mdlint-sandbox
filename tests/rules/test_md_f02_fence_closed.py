@@ -105,3 +105,45 @@ def test_bare_fence_after_a_sample_block_with_info_string_is_still_paired():
     ]
 
     assert check("doc.md", lines) == []
+
+
+def test_empty_document_has_no_violations():
+    assert check("doc.md", []) == []
+
+
+def test_longer_closing_run_closes_a_tilde_fence():
+    assert check("doc.md", ["~~~text", "content", "~~~~~~"]) == []
+
+
+def test_closing_fence_may_carry_trailing_whitespace():
+    assert check("doc.md", ["```python", "content", "```  \t"]) == []
+
+
+def test_unclosed_outer_fence_is_reported_even_when_an_inner_fence_is_closed():
+    """The inner ``` pair is content of the four-backtick block, which never ends."""
+    violations = check("doc.md", ["````text", "```", "inner", "```"])
+
+    assert [v.line for v in violations] == [1]
+
+
+def test_opposite_marker_lines_do_not_close_an_open_fence():
+    violations = check("doc.md", ["```python", "~~~", "content", "~~~"])
+
+    assert [v.line for v in violations] == [1]
+
+
+def test_closing_line_with_an_info_string_at_eof_leaves_the_fence_unclosed():
+    violations = check("doc.md", ["```", "content", "```python"])
+
+    assert [v.line for v in violations] == [1]
+
+
+def test_prose_line_starting_with_backticks_and_containing_one_is_not_an_unclosed_fence():
+    assert check("doc.md", ["``` is how a fence starts with `x`", "plain text"]) == []
+
+
+def test_violation_carries_the_file_and_message():
+    violations = check("docs/a.md", ["```python", "content"])
+
+    assert violations[0].file == "docs/a.md"
+    assert violations[0].message == "fenced code block is never closed"

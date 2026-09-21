@@ -103,3 +103,43 @@ def test_bare_fence_after_a_sample_block_is_flagged_at_its_own_open_line():
 
     assert len(violations) == 1
     assert violations[0].line == 7
+
+
+def test_bare_tilde_fence_is_flagged():
+    violations = check("doc.md", ["~~~", "code", "~~~"])
+
+    assert len(violations) == 1
+    assert violations[0].line == 1
+
+
+def test_bare_long_fence_is_flagged():
+    violations = check("doc.md", ["````", "code", "````"])
+
+    assert [v.line for v in violations] == [1]
+
+
+def test_attribute_style_info_string_counts_as_a_declared_language():
+    assert check("doc.md", ["``` {.python}", "code", "```"]) == []
+
+
+def test_bare_fence_nested_inside_a_longer_declared_fence_is_content():
+    lines = ["````markdown", "```", "inner", "```", "````"]
+
+    assert check("doc.md", lines) == []
+
+
+def test_violation_carries_the_file_and_message():
+    violations = check("docs/a.md", ["```", "code", "```"])
+
+    assert violations[0].file == "docs/a.md"
+    assert violations[0].message == "fenced code block does not declare a language"
+
+
+def test_prose_line_starting_with_backticks_and_containing_one_is_not_a_bare_fence():
+    lines = ["``` is how a fence starts with `x`", "```python", "code", "```"]
+
+    assert check("doc.md", lines) == []
+
+
+def test_empty_document_has_no_violations():
+    assert check("doc.md", []) == []
