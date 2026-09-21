@@ -99,3 +99,110 @@ def test_fix_skips_a_later_block_that_already_matches_the_expected_marker():
 
     assert fixed == ["```python", "a", "```", "```", "b", "```", "```", "c", "```"]
     assert check("doc.md", fixed) == []
+
+
+def test_violation_message_names_both_markers():
+    violations = check("doc.md", ["```python", "one", "```", "~~~text", "two", "~~~"])
+
+    assert violations[0].file == "doc.md"
+    assert violations[0].message == "fence marker '~' is inconsistent; file uses '`'"
+
+
+def test_tilde_first_makes_backtick_the_inconsistent_marker():
+    violations = check("doc.md", ["~~~text", "one", "~~~", "```python", "two", "```"])
+
+    assert [v.line for v in violations] == [4]
+    assert violations[0].message == "fence marker '`' is inconsistent; file uses '~'"
+
+
+def test_marker_lines_inside_another_fence_are_content_not_fences():
+    lines = ["```markdown", "~~~python", "print('hi')", "~~~", "```"]
+
+    assert check("doc.md", lines) == []
+
+
+def test_prose_line_with_backtick_in_info_does_not_set_the_expected_marker():
+    lines = ["``` not a fence `x`", "~~~text", "one", "~~~"]
+
+    assert check("doc.md", lines) == []
+
+
+def test_fix_leaves_a_block_alone_when_its_content_would_close_it_after_conversion():
+    """Converting ~~~ to ``` would let the inner ``` line end the block early."""
+    lines = ["```python", "a", "```", "~~~markdown", "```", "inner", "```", "~~~"]
+
+    fixed = fix(lines)
+
+    assert fixed == lines
+    assert [v.line for v in check("doc.md", fixed)] == [4]
+
+
+def test_fix_converts_a_block_whose_nested_fence_lines_use_the_other_marker_and_are_shorter():
+    lines = ["~~~text", "a", "~~~", "````markdown", "```", "inner", "```", "````"]
+
+    fixed = fix(lines)
+
+    assert fixed == ["~~~text", "a", "~~~", "~~~~markdown", "```", "inner", "```", "~~~~"]
+    assert check("doc.md", fixed) == []
+
+
+def test_fix_leaves_a_tilde_fence_whose_info_string_has_a_backtick_alone():
+    """A backtick in the info string is illegal on a backtick fence, so skip the block."""
+    lines = ["```python", "a", "```", "~~~ `x`", "b", "~~~"]
+
+    assert fix(lines) == lines
+
+
+def test_fix_still_converts_other_blocks_when_one_is_skipped():
+    lines = [
+        "```python",
+        "a",
+        "```",
+        "~~~markdown",
+        "```",
+        "~~~",
+        "~~~text",
+        "b",
+        "~~~",
+    ]
+
+    fixed = fix(lines)
+
+    assert fixed == [
+        "```python",
+        "a",
+        "```",
+        "~~~markdown",
+        "```",
+        "~~~",
+        "```text",
+        "b",
+        "```",
+    ]
+
+
+def test_fix_skips_an_unclosed_block_whose_remaining_content_would_close_it():
+    lines = ["```python", "a", "```", "~~~text", "```"]
+
+    assert fix(lines) == lines
+
+
+def test_fix_is_idempotent():
+    lines = ["```python", "one", "```", "~~~text", "two", "~~~"]
+
+    once = fix(lines)
+
+    assert fix(once) == once
+
+
+def test_fix_does_not_mutate_its_input():
+    lines = ["```python", "one", "```", "~~~text", "two", "~~~"]
+    snapshot = list(lines)
+
+    fix(lines)
+
+    assert lines == snapshot
+
+
+def test_fix_of_an_empty_document_is_a_noop():
+    assert fix([]) == []
