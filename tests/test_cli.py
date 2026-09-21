@@ -980,3 +980,33 @@ def test_installed_console_script_combines_fix_config_format_and_ignore(tmp_path
     assert [v["rule_id"] for v in payload["violations"]] == ["MDS01"]
     # --ignore excluded vendor.md entirely: untouched on disk, no violations.
     assert ignored.read_text() == "Not a heading\n\n1. one\n3. two\n"
+
+
+def test_fence_marker_consistency_is_scoped_to_each_file(tmp_path, capsys):
+    """MDF03 says "consistent within a file": one file's marker must not
+    become the expected marker for the next file on the command line."""
+    backticks = tmp_path / "backticks.md"
+    tildes = tmp_path / "tildes.md"
+    backticks.write_text("# Title\n\n```text\none\n```\n")
+    tildes.write_text("# Title\n\n~~~text\ntwo\n~~~\n")
+
+    exit_code = main([str(backticks), str(tildes)])
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert captured.out == ""
+
+
+def test_fix_makes_each_file_consistent_with_its_own_first_fence(tmp_path, capsys):
+    backticks = tmp_path / "backticks.md"
+    tildes = tmp_path / "tildes.md"
+    backticks.write_text("# Title\n\n```text\none\n```\n\n~~~text\ntwo\n~~~\n")
+    tildes.write_text("# Title\n\n~~~text\none\n~~~\n\n```text\ntwo\n```\n")
+
+    exit_code = main(["--fix", str(backticks), str(tildes)])
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert captured.out == ""
+    assert backticks.read_text() == "# Title\n\n```text\none\n```\n\n```text\ntwo\n```\n"
+    assert tildes.read_text() == "# Title\n\n~~~text\none\n~~~\n\n~~~text\ntwo\n~~~\n"

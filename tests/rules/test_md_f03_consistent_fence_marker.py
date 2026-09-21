@@ -269,3 +269,26 @@ def test_fix_leaves_non_fence_lines_untouched():
 
     assert fixed[:3] == lines[:3]
     assert fixed[5:7] == lines[5:7]
+
+
+def test_fix_converts_a_block_whose_interior_line_looks_like_a_closer_but_carries_an_info_string():
+    """An interior ```python line can't close a converted block, so conversion is safe."""
+    lines = ["```text", "a", "```", "~~~text", "```python", "b", "~~~"]
+
+    fixed = fix(lines)
+
+    assert fixed == ["```text", "a", "```", "```text", "```python", "b", "```"]
+    assert check("doc.md", fixed) == []
+
+
+def test_fix_leaves_a_block_alone_when_a_longer_interior_run_would_close_it_after_conversion():
+    lines = ["```text", "a", "```", "~~~", "````", "b", "~~~"]
+
+    assert fix(lines) == lines
+    assert [v.line for v in check("doc.md", lines)] == [4]
+
+
+def test_tab_indented_fence_does_not_set_the_expected_marker():
+    lines = ["\t```python", "code", "\t```", "~~~text", "b", "~~~"]
+
+    assert check("doc.md", lines) == []

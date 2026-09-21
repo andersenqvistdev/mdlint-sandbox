@@ -298,3 +298,18 @@ def test_fenced_line_numbers_is_not_desynced_by_a_tilde_line_inside_a_backtick_f
     lines = ["```python", "~~~", "code", "```", "prose", "~~~text", "more", "~~~"]
 
     assert fenced_line_numbers(lines) == {1, 2, 3, 4, 6, 7, 8}
+
+
+def test_tab_indented_fence_is_not_a_fence():
+    """A tab counts as four columns of indentation, so it can't open a fence."""
+    lines = ["\t```python", "code", "\t```"]
+
+    assert list(iter_fence_blocks(lines)) == []
+
+
+def test_tab_indented_line_does_not_close_an_open_fence():
+    lines = ["```python", "code", "\t```"]
+
+    blocks = list(iter_fence_blocks(lines))
+
+    assert blocks == [FenceBlock(marker="`", length=3, info="python", open_line=1, close_line=None)]
