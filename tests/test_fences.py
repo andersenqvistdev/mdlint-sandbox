@@ -195,3 +195,70 @@ def test_fenced_line_numbers_covers_multiple_blocks():
 
 def test_fenced_line_numbers_empty_for_a_document_with_no_fences():
     assert fenced_line_numbers(["plain text", "more text"]) == set()
+
+
+def test_longer_closing_run_closes_a_shorter_opening_fence():
+    lines = ["```python", "code", "`````"]
+
+    blocks = list(iter_fence_blocks(lines))
+
+    assert blocks == [FenceBlock(marker="`", length=3, info="python", open_line=1, close_line=3)]
+
+
+def test_closing_fence_may_have_trailing_whitespace():
+    lines = ["~~~text", "content", "~~~  \t"]
+
+    blocks = list(iter_fence_blocks(lines))
+
+    assert blocks == [FenceBlock(marker="~", length=3, info="text", open_line=1, close_line=3)]
+
+
+def test_whitespace_only_info_string_is_empty():
+    lines = ["```   ", "content", "```"]
+
+    blocks = list(iter_fence_blocks(lines))
+
+    assert blocks == [FenceBlock(marker="`", length=3, info="", open_line=1, close_line=3)]
+
+
+def test_shorter_fence_inside_a_longer_one_is_content_not_a_nested_block():
+    lines = ["````markdown", "```python", "print('hi')", "```", "````"]
+
+    blocks = list(iter_fence_blocks(lines))
+
+    assert blocks == [FenceBlock(marker="`", length=4, info="markdown", open_line=1, close_line=5)]
+
+
+def test_tilde_fence_is_not_closed_by_a_backtick_line():
+    lines = ["~~~text", "```", "content", "~~~"]
+
+    blocks = list(iter_fence_blocks(lines))
+
+    assert blocks == [FenceBlock(marker="~", length=3, info="text", open_line=1, close_line=4)]
+
+
+def test_two_marker_run_is_not_a_fence():
+    assert list(iter_fence_blocks(["``", "text", "``", "~~", "text", "~~"])) == []
+
+
+def test_empty_document_yields_nothing():
+    assert list(iter_fence_blocks([])) == []
+
+
+def test_fence_marker_span_accounts_for_indentation():
+    assert fence_marker_span("  ~~~~text") == (2, 6)
+
+
+def test_fence_marker_span_is_purely_lexical_about_the_info_string():
+    """fence_marker_span only locates the marker run; it doesn't validate the info.
+
+    Callers get their fence lines from iter_fence_blocks, which already rejects
+    a backtick fence whose info contains a backtick.
+    """
+    assert fence_marker_span("```a`b") == (0, 3)
+
+
+def test_fenced_line_numbers_ignores_prose_that_only_looks_like_a_fence():
+    lines = ["``` not `a` fence", "text", "```python", "code", "```"]
+
+    assert fenced_line_numbers(lines) == {3, 4, 5}

@@ -5,7 +5,7 @@ establishes the file's expected marker; every later fence opened with the
 other character is flagged, regardless of nesting.
 """
 
-from mdlint.fences import fence_marker_span, iter_fence_blocks
+from mdlint.fences import FenceBlock, fence_marker_span, iter_fence_blocks
 from mdlint.rules import Rule, register
 from mdlint.violation import Violation
 
@@ -35,15 +35,40 @@ def check(file: str, lines: list[str]) -> list[Violation]:
     return violations
 
 
+def _can_convert(lines: list[str], block: FenceBlock, marker: str) -> bool:
+    """Return whether rewriting block to marker keeps its extent unchanged.
+
+    A conversion is unsafe when it would make the block's own content end it
+    early (an interior line that becomes a valid closer once the marker
+    matches), or when the info string stops being legal (a backtick fence's
+    info may not contain a backtick). Such blocks are left for a human.
+    """
+    if marker == "`" and "`" in block.info:
+        return False
+    end = block.close_line if block.close_line is not None else len(lines) + 1
+    for line in lines[block.open_line : end - 1]:
+        span = fence_marker_span(line)
+        if span is None:
+            continue
+        start, stop = span
+        if line[start] == marker and stop - start >= block.length and not line[stop:].strip():
+            return False
+    return True
+
+
 def fix(lines: list[str]) -> list[str]:
-    """Rewrite every fence marker to match the file's first fence marker."""
+    """Rewrite fence markers to match the file's first fence marker.
+
+    Blocks whose conversion would change where the fence ends (see
+    :func:`_can_convert`) are left untouched and stay reported by the rule.
+    """
     blocks = list(iter_fence_blocks(lines))
     if len(blocks) < 2:
         return lines
     expected_marker = blocks[0].marker
     fixed = list(lines)
     for block in blocks[1:]:
-        if block.marker == expected_marker:
+        if block.marker == expected_marker or not _can_convert(lines, block, expected_marker):
             continue
         fence_lines = [block.open_line]
         if block.close_line is not None:
