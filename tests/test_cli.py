@@ -1023,6 +1023,30 @@ def test_fence_marker_consistency_is_scoped_to_each_file(tmp_path, capsys):
     assert captured.out == ""
 
 
+def test_empty_file_is_clean_in_text_and_json_and_untouched_by_fix(tmp_path, capsys):
+    """A zero-byte file has no "first line" for MDS01 to flag and nothing for
+    MDW04's trailing-newline check to fix, so it must round-trip as clean
+    through every mode without crashing or triggering a spurious rewrite."""
+    doc = tmp_path / "empty.md"
+    doc.write_text("")
+
+    exit_code = main([str(doc)])
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert captured.out == ""
+
+    exit_code = main(["--format", "json", str(doc)])
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert json.loads(captured.out) == {"violations": [], "errors": []}
+
+    original_mtime = doc.stat().st_mtime_ns
+    exit_code = main(["--fix", str(doc)])
+    assert exit_code == 0
+    assert doc.read_text() == ""
+    assert doc.stat().st_mtime_ns == original_mtime
+
+
 def test_fix_makes_each_file_consistent_with_its_own_first_fence(tmp_path, capsys):
     backticks = tmp_path / "backticks.md"
     tildes = tmp_path / "tildes.md"
