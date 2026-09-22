@@ -494,6 +494,21 @@ def test_ignore_with_empty_pattern_exits_two_instead_of_crashing(tmp_path, capsy
     assert captured.out == ""
 
 
+def test_ignore_pattern_of_a_single_dot_exits_two_instead_of_crashing(tmp_path, capsys):
+    doc = tmp_path / "doc.md"
+    doc.write_text("# Title\n")
+
+    # Path.match(".") raises the same "empty pattern" ValueError as "": a
+    # user reaching for "." to mean "the current directory" must get a clean
+    # CLI error, not an unhandled traceback.
+    exit_code = main(["--ignore", ".", str(doc)])
+
+    captured = capsys.readouterr()
+    assert exit_code == 2
+    assert "invalid --ignore pattern" in captured.err
+    assert captured.out == ""
+
+
 def test_ignore_extension_glob_skips_every_matching_file(tmp_path, capsys):
     first = tmp_path / "a.md"
     first.write_text("Not a heading\n")
