@@ -1010,3 +1010,23 @@ def test_fix_makes_each_file_consistent_with_its_own_first_fence(tmp_path, capsy
     assert captured.out == ""
     assert backticks.read_text() == "# Title\n\n```text\none\n```\n\n```text\ntwo\n```\n"
     assert tildes.read_text() == "# Title\n\n~~~text\none\n~~~\n\n~~~text\ntwo\n~~~\n"
+
+
+def test_fix_skips_a_fenceless_file_between_two_files_needing_fence_fixes(tmp_path, capsys):
+    """A plain file with no fences at all, sandwiched between two files that
+    do need MDF03 fixes, must not disrupt either neighbor's fix or scoping."""
+    first = tmp_path / "first.md"
+    middle = tmp_path / "middle.md"
+    last = tmp_path / "last.md"
+    first.write_text("# Title\n\n```text\none\n```\n\n~~~text\ntwo\n~~~\n")
+    middle.write_text("# Title\n\nNo fences here, just prose.\n")
+    last.write_text("# Title\n\n~~~text\none\n~~~\n\n```text\ntwo\n```\n")
+
+    exit_code = main(["--fix", str(first), str(middle), str(last)])
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert captured.out == ""
+    assert first.read_text() == "# Title\n\n```text\none\n```\n\n```text\ntwo\n```\n"
+    assert middle.read_text() == "# Title\n\nNo fences here, just prose.\n"
+    assert last.read_text() == "# Title\n\n~~~text\none\n~~~\n\n~~~text\ntwo\n~~~\n"
