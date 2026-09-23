@@ -480,6 +480,27 @@ def test_ignore_recursive_glob_does_not_match_across_multiple_directories(
     assert "docs/sub/deep/dirty.md" in captured.out
 
 
+def test_ignore_bare_double_star_matches_every_file_regardless_of_depth(tmp_path, capsys):
+    shallow = tmp_path / "doc.md"
+    shallow.write_text("Not a heading\n")
+    nested = tmp_path / "docs" / "sub"
+    nested.mkdir(parents=True)
+    deep = nested / "dirty.md"
+    deep.write_text("Not a heading\n")
+
+    # Unlike "docs/**/*.md" (see the test above), a *bare* "**" pattern has
+    # no literal segments of its own to anchor against, so PurePath.match
+    # treats it as matching any path regardless of depth -- effectively
+    # "ignore everything". This is the opposite surprise from the one above
+    # and worth locking in separately: both files are skipped, so linting
+    # finds nothing and exits 0.
+    exit_code = main(["--ignore", "**", str(shallow), str(deep)])
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert captured.out == ""
+
+
 def test_ignore_with_empty_pattern_exits_two_instead_of_crashing(tmp_path, capsys):
     doc = tmp_path / "doc.md"
     doc.write_text("# Title\n")
