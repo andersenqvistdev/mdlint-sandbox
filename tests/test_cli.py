@@ -381,6 +381,25 @@ def test_format_json_clean_file_is_an_empty_result(tmp_path, capsys):
     assert payload == {"violations": [], "errors": []}
 
 
+def test_format_json_escapes_non_ascii_filenames_instead_of_emitting_utf8(tmp_path, capsys):
+    doc = tmp_path / "café.md"
+    doc.write_text("Not a heading\n")
+
+    exit_code = main(["--format", "json", str(doc)])
+
+    captured = capsys.readouterr()
+    assert exit_code == 1
+    # json.dumps defaults to ensure_ascii=True, so the raw stdout bytes never
+    # contain the literal "é" -- it's escaped as é. json.loads still
+    # decodes it back to the original string, so round-tripping is unaffected;
+    # this only locks in the on-the-wire representation for JSON consumers
+    # that scan stdout as text before parsing it.
+    assert "café" not in captured.out
+    assert "caf\\u00e9.md" in captured.out
+    payload = json.loads(captured.out)
+    assert payload["violations"][0]["file"] == str(doc)
+
+
 def test_ignore_skips_matching_files(tmp_path, capsys):
     dirty = tmp_path / "dirty.md"
     dirty.write_text("Not a heading\n")
