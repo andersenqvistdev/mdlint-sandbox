@@ -1135,3 +1135,26 @@ def test_fix_skips_a_fenceless_file_between_two_files_needing_fence_fixes(tmp_pa
     assert first.read_text() == "# Title\n\n```text\none\n```\n\n```text\ntwo\n```\n"
     assert middle.read_text() == "# Title\n\nNo fences here, just prose.\n"
     assert last.read_text() == "# Title\n\n~~~text\none\n~~~\n\n~~~text\ntwo\n~~~\n"
+
+
+def test_ignored_nonexistent_file_is_skipped_without_error(tmp_path, capsys):
+    missing = tmp_path / "vendor" / "gone.md"
+
+    exit_code = main([str(missing), "--ignore", "vendor/*", "--config", str(tmp_path / "rc")])
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert captured.out == ""
+    assert captured.err == ""
+
+
+def test_config_with_null_enabled_runs_every_rule(tmp_path, capsys):
+    config = tmp_path / ".mdlintrc"
+    config.write_text(json.dumps({"enabled": None}))
+    doc = tmp_path / "doc.md"
+    doc.write_text("## Title\n")
+
+    exit_code = main([str(doc), "--config", str(config)])
+
+    assert exit_code == 1
+    assert "MDS01" in capsys.readouterr().out
