@@ -763,6 +763,22 @@ def test_config_with_duplicate_unknown_rule_id_lists_it_once_per_occurrence(tmp_
     assert "MDS99, MDS99" in captured.err
 
 
+def test_config_rule_id_matching_is_case_sensitive(tmp_path, capsys):
+    doc = tmp_path / "doc.md"
+    doc.write_text("# Title\n")
+    config = tmp_path / ".mdlintrc"
+    config.write_text(json.dumps({"enabled": ["mds01"]}))
+
+    # Rule ids are registered in uppercase (e.g. "MDS01"); a lowercase
+    # variant is not quietly normalized to match it -- it's treated as an
+    # unknown id entirely, the same as any other typo.
+    exit_code = main(["--config", str(config), str(doc)])
+
+    captured = capsys.readouterr()
+    assert exit_code == 2
+    assert "mds01" in captured.err
+
+
 def test_config_path_that_is_a_directory_exits_two(tmp_path, capsys):
     doc = tmp_path / "doc.md"
     doc.write_text("# Title\n")
