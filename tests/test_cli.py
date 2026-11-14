@@ -865,6 +865,23 @@ def test_invalid_format_choice_exits_two(tmp_path, capsys):
     assert "invalid choice" in captured.err
 
 
+def test_ambiguous_abbreviated_flag_exits_two_via_argparse(tmp_path, capsys):
+    doc = tmp_path / "doc.md"
+    doc.write_text("# Title\n")
+
+    # argparse's default prefix-matching lets a long option be abbreviated
+    # as long as it's unambiguous. "--f" matches both "--fix" and
+    # "--format", so it's rejected as ambiguous before mdlint's own logic
+    # ever runs, surfacing as the same clean exit code 2 contract as every
+    # other invalid-invocation case.
+    with pytest.raises(SystemExit) as excinfo:
+        main(["--f", "json", str(doc)])
+
+    captured = capsys.readouterr()
+    assert excinfo.value.code == 2
+    assert "ambiguous option: --f could match --fix, --format" in captured.err
+
+
 def test_format_json_reports_invalid_config_as_structured_data_on_stdout(tmp_path, capsys):
     doc = tmp_path / "doc.md"
     doc.write_text("# Title\n")
