@@ -313,3 +313,23 @@ def test_tab_indented_line_does_not_close_an_open_fence():
     blocks = list(iter_fence_blocks(lines))
 
     assert blocks == [FenceBlock(marker="`", length=3, info="python", open_line=1, close_line=None)]
+
+
+def test_fence_inside_a_blockquote_is_not_recognized():
+    """The ``>`` prefix isn't leading whitespace, so the fence regex never
+    matches: fences nested in blockquotes are a known, intentional gap.
+    """
+    lines = ["> ```python", "> print(1)", "> ```"]
+
+    assert list(iter_fence_blocks(lines)) == []
+
+
+def test_fence_nested_four_spaces_deep_in_a_list_item_is_not_recognized():
+    """CommonMark measures a list item's fence indentation relative to the
+    item's content column, but mdlint only checks absolute indentation
+    (0-3 spaces), so a fence nested in list content is a known, intentional
+    gap rather than a bug to fix here.
+    """
+    lines = ["- item", "    ```python", "    print(1)", "    ```"]
+
+    assert list(iter_fence_blocks(lines)) == []
