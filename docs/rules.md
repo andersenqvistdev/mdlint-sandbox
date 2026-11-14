@@ -265,6 +265,11 @@ See https://example.com for details.
 
 ## Fence (`MDF`)
 
+**Known limitation:** fences are recognized only by absolute line indentation
+(0-3 spaces), per top-level CommonMark. A fence nested inside a blockquote
+(`> \`\`\``) or indented 4+ spaces as list-item content is not recognized by
+any MDF rule.
+
 ### MDF01 — fence-language-required
 
 Every fenced code block must declare a language in its info string (e.g.
