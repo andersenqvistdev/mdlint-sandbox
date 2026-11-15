@@ -38,6 +38,14 @@ def test_requires_space_after_hashes():
     assert headings == []
 
 
+def test_tab_after_hashes_is_a_valid_separator():
+    # CommonMark's ATX separator is "whitespace", not specifically a space —
+    # a tab must work just as well as " # Title".
+    headings = list(iter_headings(["#\tTitle"]))
+
+    assert headings == [Heading(level=1, text="Title", line=1)]
+
+
 def test_shorter_fence_does_not_close_a_longer_opening_fence():
     lines = [
         "# Title",
