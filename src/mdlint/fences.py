@@ -10,6 +10,12 @@ ambiguous with the fence marker; such a line is not a fence line at all
 happen to start with three backticks from opening a phantom block. A fence
 that never finds a matching closing line stays open through the end of the
 document.
+
+Lines never carry a trailing "\\r" here even for a CRLF-encoded source file:
+the only caller, the CLI, reads files with ``Path.read_text()``, whose default
+``newline=None`` performs universal-newline translation before ``split("\\n")``
+ever runs, so CRLF is already normalized to LF by the time lines reach this
+module.
 """
 
 import re
