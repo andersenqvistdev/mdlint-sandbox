@@ -250,6 +250,41 @@ def test_fix_cleans_up_trailing_spaces_and_blank_line_runs(tmp_path, capsys):
     assert doc.read_text() == "# Title\n\nBody.\n"
 
 
+def test_fix_on_a_file_with_an_applicable_fix_normalizes_crlf_to_lf(tmp_path, capsys):
+    doc = tmp_path / "doc.md"
+    # Path.read_text/write_text do universal-newline translation: reading
+    # strips every "\r\n" down to "\n" before any rule sees the content, and
+    # writing emits plain "\n" on this platform. So once MDW01's trailing-
+    # space fix makes `fixed_lines != lines` true, the whole file gets
+    # rewritten with "\n".join(...) and every line ending is silently
+    # normalized to LF, not just the one line the fix actually touched.
+    doc.write_bytes(b"# Title  \r\n\r\nBody.\r\n")
+
+    exit_code = main(["--fix", str(doc)])
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert captured.out == ""
+    assert doc.read_bytes() == b"# Title\n\nBody.\n"
+
+
+def test_fix_on_a_crlf_file_with_no_applicable_fix_leaves_crlf_untouched(tmp_path, capsys):
+    doc = tmp_path / "doc.md"
+    # The mirror-image case: when no rule's fix actually changes any line,
+    # `fixed_lines != lines` is False, so the file is never rewritten at
+    # all -- the original "\r\n" bytes on disk survive untouched, even
+    # though they were transparently stripped to "\n" in memory while
+    # linting.
+    doc.write_bytes(b"# Title\r\n\r\nBody.\r\n")
+
+    exit_code = main(["--fix", str(doc)])
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert captured.out == ""
+    assert doc.read_bytes() == b"# Title\r\n\r\nBody.\r\n"
+
+
 def test_mdt02_and_mdt03_violations_are_reported_through_the_cli(tmp_path, capsys):
     """MDT01 gets CLI-level coverage above; MDT02 and MDT03 were only ever
     exercised via their own rule-level unit tests. Confirm the CLI entry
