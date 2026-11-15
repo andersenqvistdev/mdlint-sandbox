@@ -292,6 +292,15 @@ def test_trailing_hash_with_preceding_space_is_still_stripped():
     assert headings == [Heading(level=2, text="C", line=1)]
 
 
+def test_closing_sequence_with_no_leading_title_text_yields_empty_heading():
+    # CommonMark spec example: "### ###" is a valid H3 with *empty* content —
+    # the entire line after the opening hashes is itself a closing sequence,
+    # not literal title text, so it must be stripped down to "".
+    headings = list(iter_headings(["### ###"]))
+
+    assert headings == [Heading(level=3, text="", line=1)]
+
+
 def test_front_matter_delimiter_must_be_the_literal_first_line():
     # A "---" preceded by a blank line doesn't qualify as front matter
     # (Jekyll/Hugo require it to open the file), so its "---" lines are
