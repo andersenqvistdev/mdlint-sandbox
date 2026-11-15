@@ -885,6 +885,36 @@ def test_no_files_argument_exits_two_via_argparse(capsys):
     assert "the following arguments are required: files" in captured.err
 
 
+def test_dash_prefixed_filename_without_separator_exits_two_via_argparse(capsys):
+    # A filename that itself starts with "-" (e.g. "-weird.md") looks like an
+    # optional argument to argparse, not a value for the "files" positional,
+    # so it's rejected as an unrecognized option and "files" is left
+    # unsatisfied -- surfacing as the same exit code 2 contract as every
+    # other invalid-invocation case, before mdlint's own logic ever runs.
+    with pytest.raises(SystemExit) as excinfo:
+        main(["-weird.md"])
+
+    captured = capsys.readouterr()
+    assert excinfo.value.code == 2
+    assert "the following arguments are required: files" in captured.err
+
+
+def test_dash_prefixed_filename_after_separator_is_accepted(tmp_path, capsys, monkeypatch):
+    # The "--" separator tells argparse that everything after it is
+    # positional, letting a dash-prefixed filename through to mdlint's own
+    # logic instead of being misread as an unrecognized option. Uses a
+    # relative path from cwd so the "-" prefix survives (an absolute tmp_path
+    # would hide it behind a leading "/").
+    (tmp_path / "-weird.md").write_text("# Title\n")
+    monkeypatch.chdir(tmp_path)
+
+    exit_code = main(["--", "-weird.md"])
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert captured.out == ""
+
+
 def test_invalid_format_choice_exits_two(tmp_path, capsys):
     doc = tmp_path / "doc.md"
     doc.write_text("# Title\n")
