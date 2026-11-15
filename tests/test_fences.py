@@ -324,6 +324,23 @@ def test_fence_inside_a_blockquote_is_not_recognized():
     assert list(iter_fence_blocks(lines)) == []
 
 
+def test_fence_opening_on_a_bom_prefixed_first_line_is_still_recognized():
+    # A BOM-prefixed first line must not hide a fence that opens on it
+    # (regression: previously the BOM broke the fence regex match, so the
+    # block was never detected and its closer was misread as a fresh open).
+    lines = ["﻿```python", "code", "```"]
+
+    blocks = list(iter_fence_blocks(lines))
+
+    assert blocks == [FenceBlock(marker="`", length=3, info="python", open_line=1, close_line=3)]
+
+
+def test_fenced_line_numbers_accounts_for_a_bom_prefixed_opening_fence():
+    lines = ["﻿```python", "code", "```"]
+
+    assert fenced_line_numbers(lines) == {1, 2, 3}
+
+
 def test_fence_nested_four_spaces_deep_in_a_list_item_is_not_recognized():
     """CommonMark measures a list item's fence indentation relative to the
     item's content column, but mdlint only checks absolute indentation

@@ -143,3 +143,10 @@ def test_prose_line_starting_with_backticks_and_containing_one_is_not_a_bare_fen
 
 def test_empty_document_has_no_violations():
     assert check("doc.md", []) == []
+
+
+def test_fence_declaring_a_language_on_a_bom_prefixed_first_line_passes():
+    # A BOM-prefixed first line must not hide a fence opening on it
+    # (regression: previously the BOM broke fence detection, so the real
+    # fence went unseen and its closer was misread as a bare opener).
+    assert check("doc.md", ["﻿```python", "code", "```"]) == []

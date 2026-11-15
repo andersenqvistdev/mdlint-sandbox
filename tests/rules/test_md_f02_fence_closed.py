@@ -147,3 +147,10 @@ def test_violation_carries_the_file_and_message():
 
     assert violations[0].file == "docs/a.md"
     assert violations[0].message == "fenced code block is never closed"
+
+
+def test_fence_closed_on_a_bom_prefixed_first_line_passes():
+    # A BOM-prefixed first line must not hide a fence opening on it
+    # (regression: previously the BOM broke fence detection, so the real
+    # fence went unseen and its closer was misread as a bare, unclosed open).
+    assert check("doc.md", ["﻿```python", "code", "```"]) == []
