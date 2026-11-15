@@ -104,6 +104,33 @@ def test_setext_level_two_heading():
     assert headings == [Heading(level=2, text="Setext title", line=1)]
 
 
+def test_setext_underline_with_up_to_three_leading_spaces_is_recognized():
+    # CommonMark allows 0-3 spaces of indentation before the underline
+    # itself, same as the paragraph text above it — only 4+ spaces pushes
+    # it into indented-code territory (see the 4-space test further down).
+    lines = ["Title", "  ===="]
+
+    headings = list(iter_headings(lines))
+
+    assert headings == [Heading(level=1, text="Title", line=1)]
+
+
+def test_setext_underline_with_trailing_spaces_is_recognized():
+    lines = ["Title", "===  "]
+
+    headings = list(iter_headings(lines))
+
+    assert headings == [Heading(level=1, text="Title", line=1)]
+
+
+def test_setext_underline_with_trailing_tab_is_recognized():
+    lines = ["Title", "---\t"]
+
+    headings = list(iter_headings(lines))
+
+    assert headings == [Heading(level=2, text="Title", line=1)]
+
+
 def test_setext_heading_preceded_by_blank_line_is_recognized():
     lines = ["intro", "", "Setext title", "============"]
 
