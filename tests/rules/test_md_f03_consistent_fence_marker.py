@@ -292,3 +292,14 @@ def test_tab_indented_fence_does_not_set_the_expected_marker():
     lines = ["\t```python", "code", "\t```", "~~~text", "b", "~~~"]
 
     assert check("doc.md", lines) == []
+
+
+def test_bom_prefixed_first_fence_still_sets_the_expected_marker():
+    # A BOM-prefixed first line must not hide the fence opening on it
+    # (regression: previously the BOM broke fence detection, so this block
+    # never set the expected marker and the later tilde fence went unflagged).
+    lines = ["﻿```python", "one", "```", "~~~text", "two", "~~~"]
+
+    violations = check("doc.md", lines)
+
+    assert [v.line for v in violations] == [4]

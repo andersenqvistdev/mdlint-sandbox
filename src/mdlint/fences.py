@@ -25,6 +25,19 @@ from dataclasses import dataclass
 _FENCE_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})[ \t]*(.*?)[ \t]*$")
 
 
+def _strip_bom(lines: list[str]) -> list[str]:
+    """Drop a leading UTF-8 BOM from the first line, if present.
+
+    ``str.strip()`` does not remove U+FEFF, so a BOM-prefixed first line
+    (``"\\ufeffcode"``) fails ``_FENCE_RE`` even when it would otherwise open
+    a fence, silently hiding the document's first fenced block (mirrors the
+    same fix in :func:`mdlint.headings._strip_bom`).
+    """
+    if lines and lines[0].startswith("﻿"):
+        return [lines[0][1:], *lines[1:]]
+    return lines
+
+
 @dataclass(frozen=True)
 class FenceBlock:
     """A single fenced code block found in a document."""
@@ -47,6 +60,7 @@ def iter_fence_blocks(lines: list[str]) -> Iterator[FenceBlock]:
     info string contains a backtick is never a fence line at all, since
     CommonMark forbids backticks in a backtick fence's info string.
     """
+    lines = _strip_bom(lines)
     open_marker: str | None = None
     open_length = 0
     open_line = 0
