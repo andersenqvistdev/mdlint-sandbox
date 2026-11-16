@@ -108,3 +108,15 @@ def test_front_matter_closing_delimiter_does_not_create_a_phantom_heading():
     lines = ["---", "x: y", "---", "#### Deep"]
 
     assert check("doc.md", lines) == []
+
+
+def test_fails_when_a_level_is_skipped_after_dropping_back_down():
+    # Dropping back down (H3 -> H1) is always fine on its own, but the level
+    # tracker must still flag the *next* jump from that new, lower level —
+    # H1 -> H3 skips H2 just as it would anywhere else in the document.
+    lines = ["# Title", "## Section", "### Sub", "# Next Title", "### Too deep"]
+
+    violations = check("doc.md", lines)
+
+    assert len(violations) == 1
+    assert violations[0].line == 5

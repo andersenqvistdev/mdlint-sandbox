@@ -136,3 +136,16 @@ def test_fails_for_two_empty_text_siblings():
     assert len(violations) == 1
     assert violations[0].line == 3
     assert violations[0].message == "duplicate sibling heading: ''"
+
+
+def test_detects_duplicate_siblings_separated_by_a_descent_into_a_child():
+    # The first "Beta" gains a child ("Gamma") before the second "Beta"
+    # appears. The ancestor stack must pop back down to "Title" correctly so
+    # the two "Beta" headings are still recognized as duplicate siblings,
+    # not hidden behind the now-popped "Gamma" level.
+    lines = ["# Title", "## Beta", "### Gamma", "## Beta"]
+
+    violations = check("doc.md", lines)
+
+    assert len(violations) == 1
+    assert violations[0].line == 4
