@@ -368,3 +368,34 @@ All predate the run window and none required changing product code.
   2026-09-13 entry — the admission gate's "verified pointer" check still
   isn't consulting shipped state per-goal. No product code changed for this
   task.
+- **Root cause of the "already-satisfied brief" pattern finally pinned down,
+  2026-11-17.** The exact mechanism (`task-20261117190638-2cdbae`, re-confirmed
+  on the immediately following cycle `task-20261117194538-c7996a` ~39 minutes
+  later): `goal_tracker.py`'s per-goal assessor for these product goals
+  (`assess_generic_success_metric`) is deliberately unable to auto-derive
+  COMPLETE from code inspection alone — by design, to avoid silently lying
+  about an unverifiable metric — so it only reports COMPLETE once
+  `.company/state/goal_verification_state.json` holds a matching "verified"
+  stamp written by `verify_goal()` (operator confirm or PR-judge). That file
+  lives under `.company/state/`, which is `.gitignore`d and **not shared
+  across git worktrees** — every queue-fill task, including this one, runs in
+  its own disposable worktree under `/tmp/forge-worktrees/...` with its own
+  empty `.company/state/` (confirmed directly this session: the file doesn't
+  exist at all in this task's worktree). So a stamp written by
+  `verify_goal(..., confirm=True)` from inside a one-shot task can never reach
+  the live daemon's checkout, which is the only place queue-fill's assessment
+  actually runs — the loop is therefore structurally guaranteed to repeat
+  forever via this mechanism, independent of code completeness. This
+  generalizes to G2, G5, G6, G7, and G8 alike (all generic-assessed, all hit
+  this same stamp-propagation gap), explaining five-plus-cycle recurrences on
+  each without the admission gate itself needing to be at fault. The actual
+  fix is one of: (a) run `verify_goal`/`/verify <goal> --pr <N>` interactively
+  **inside the main checkout**, not from a task worktree, or (b) change where
+  the verified stamp is persisted so it survives worktree→merge (e.g. a
+  git-tracked record instead of a gitignored one) — not attempted here, since
+  (b) touches goal-assessment logic shared by every goal across the whole
+  Forge daemon and warrants review outside a single one-shot task. This
+  session's own quick sanity check reconfirmed G5 is still fully
+  code-complete: 473/473 tests passing, `ruff check .` and
+  `ruff format --check .` clean, 100% line coverage package-wide including
+  all three fence rule modules. No product code changed for this task.
