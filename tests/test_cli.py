@@ -685,6 +685,22 @@ def test_config_with_empty_enabled_list_runs_no_rules(tmp_path, capsys):
     assert captured.out == ""
 
 
+def test_config_with_enabled_key_explicitly_null_runs_every_rule(tmp_path, capsys):
+    # "enabled": null is a distinct on-disk shape from the key being
+    # absent, but must fall back to "run every rule" the same way a
+    # missing key does, not be mistaken for "enable zero rules".
+    doc = tmp_path / "doc.md"
+    doc.write_text("Not a heading\n")
+    config = tmp_path / ".mdlintrc"
+    config.write_text(json.dumps({"enabled": None}))
+
+    exit_code = main(["--config", str(config), str(doc)])
+
+    captured = capsys.readouterr()
+    assert exit_code == 1
+    assert "MDS01" in captured.out
+
+
 def test_missing_config_file_runs_every_rule(tmp_path, capsys):
     doc = tmp_path / "doc.md"
     doc.write_text("Not a heading\n")

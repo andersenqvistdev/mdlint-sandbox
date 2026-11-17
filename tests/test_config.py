@@ -64,6 +64,17 @@ def test_enabled_as_non_list_raises_config_error(tmp_path):
         load_enabled_rule_ids(config)
 
 
+def test_enabled_key_explicitly_null_returns_none(tmp_path):
+    # "enabled": null is a different on-disk shape from the key being
+    # absent entirely, but dict.get("enabled") returns None for both, so
+    # they must behave identically (run every registered rule) rather than
+    # the explicit null being mistaken for "enable zero rules".
+    config = tmp_path / ".mdlintrc"
+    config.write_text(json.dumps({"enabled": None}))
+
+    assert load_enabled_rule_ids(config) is None
+
+
 def test_enabled_list_with_non_string_item_raises_config_error(tmp_path):
     config = tmp_path / ".mdlintrc"
     config.write_text(json.dumps({"enabled": ["MDS01", 2]}))
