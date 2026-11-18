@@ -399,3 +399,25 @@ All predate the run window and none required changing product code.
   code-complete: 473/473 tests passing, `ruff check .` and
   `ruff format --check .` clean, 100% line coverage package-wide including
   all three fence rule modules. No product code changed for this task.
+- **The "already-satisfied brief" pattern recurred a 15th time for G7 on
+  `task-20261118014225-cb402a` (2026-11-18),** the same four-feature goal
+  string (`--fix`, `.mdlintrc`, `--format text|json`, `--ignore`) minted
+  repeatedly since 2026-09-13. Re-verified rather than assumed: `git log --
+  src/mdlint/cli.py src/mdlint/config.py` shows no commits since 786adcb
+  (2026-09-06, PRs #93/#100/#102; the 2026-09-19 commit ee6300e that touches
+  these files is itself one of these same recurrences, adding only tests),
+  `pytest tests/` 473/473 passing, `ruff check .` and `ruff format --check .`
+  clean. Read `cli.py` and `config.py` end-to-end again looking for a
+  genuinely new untested corner and came up empty this time: checked mixed
+  error+violation exit-code priority (already covered by
+  `test_read_error_takes_priority_over_violations`), unmatched `[` in an
+  `--ignore` glob (returns `False`, doesn't raise — no crash to lock in),
+  and an empty-string file argument (`Path("").read_text()` raises
+  `IsADirectoryError`, but that's the same code path and behavior as the
+  already-tested `test_directory_passed_as_file_exits_two_with_stderr_message`,
+  not new behavior). This confirms the 2026-11-17 root-cause finding above
+  (worktree-local `.company/state/goal_verification_state.json` can't
+  receive a stamp from a disposable task worktree, so queue-fill can never
+  see this goal as COMPLETE) rather than contradicting it — the code has
+  had zero core-feature gaps across 15 consecutive cycles spanning over two
+  months. No product code changed for this task.
