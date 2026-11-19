@@ -46,6 +46,23 @@ def test_tab_after_hashes_is_a_valid_separator():
     assert headings == [Heading(level=1, text="Title", line=1)]
 
 
+def test_bare_hash_with_no_separator_yields_empty_text_heading():
+    # "#" alone takes the regex's *optional-group-absent* path (no
+    # whitespace, no title at all) — distinct from "# " below, where the
+    # optional group matches but captures zero characters of title text.
+    headings = list(iter_headings(["#"]))
+
+    assert headings == [Heading(level=1, text="", line=1)]
+
+
+def test_hash_followed_by_space_and_no_title_yields_empty_text_heading():
+    # "# " takes the regex's *optional-group-present-but-empty* path: the
+    # separator whitespace matches, but there's no title text to capture.
+    headings = list(iter_headings(["# "]))
+
+    assert headings == [Heading(level=1, text="", line=1)]
+
+
 def test_shorter_fence_does_not_close_a_longer_opening_fence():
     lines = [
         "# Title",
