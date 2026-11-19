@@ -196,6 +196,37 @@ def test_list_item_after_paragraph_text_is_not_treated_as_underline():
     assert headings == []
 
 
+def test_ordered_list_item_with_dot_delimiter_is_not_treated_as_underline():
+    # _LIST_ITEM_RE also matches ordered markers ("1.", "1)"), not just "-";
+    # only the unordered case was exercised above, leaving the ordered
+    # alternation effectively untested despite the shared coverage line.
+    lines = ["Paragraph text", "1. item"]
+
+    headings = list(iter_headings(lines))
+
+    assert headings == []
+
+
+def test_ordered_list_item_with_paren_delimiter_is_not_treated_as_underline():
+    lines = ["Paragraph text", "1) item"]
+
+    headings = list(iter_headings(lines))
+
+    assert headings == []
+
+
+def test_mixed_character_run_is_not_a_valid_setext_underline():
+    # A run mixing "=" and "-" matches neither alternative of the homogeneous
+    # _SETEXT_UNDERLINE_RE groups, so it is ordinary paragraph continuation
+    # text, not a heading underline — the paragraph never closes into a
+    # heading since nothing valid terminates it before the document ends.
+    lines = ["Title", "===-"]
+
+    headings = list(iter_headings(lines))
+
+    assert headings == []
+
+
 def test_yaml_front_matter_closing_delimiter_is_not_a_phantom_setext_heading():
     # Without front-matter awareness, the closing "---" reads as a setext
     # underline for "tags: [a, b]", yielding a bogus H2 that confuses
