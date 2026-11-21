@@ -1,10 +1,17 @@
 """Unit tests for the ``.mdlintrc`` config loader, isolated from the CLI."""
 
 import json
+import os
+import sys
 
 import pytest
 
 from mdlint.config import ConfigError, load_enabled_rule_ids
+
+needs_unix_perms = pytest.mark.skipif(
+    sys.platform == "win32" or os.geteuid() == 0,
+    reason="permission bits are not enforceable on Windows or as root",
+)
 
 
 def test_missing_file_returns_none(tmp_path):
@@ -97,3 +104,20 @@ def test_directory_path_raises_config_error(tmp_path):
 
     with pytest.raises(ConfigError, match=str(config_dir)):
         load_enabled_rule_ids(config_dir)
+
+
+@needs_unix_perms
+def test_unreadable_file_raises_config_error(tmp_path):
+    # Permission-denied is a distinct OSError path from "is a directory" and
+    # "bad UTF-8" (both already covered above), but load_enabled_rule_ids
+    # catches OSError generically, so all three must surface the same way:
+    # a ConfigError naming the path, not an uncaught PermissionError.
+    config = tmp_path / ".mdlintrc"
+    config.write_text(json.dumps({"enabled": ["MDS01"]}))
+    config.chmod(0o000)
+
+    try:
+        with pytest.raises(ConfigError, match=str(config)):
+            load_enabled_rule_ids(config)
+    finally:
+        config.chmod(0o644)
