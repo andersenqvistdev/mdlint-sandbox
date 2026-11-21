@@ -47,6 +47,19 @@ def test_invalid_json_raises_config_error_naming_the_path(tmp_path):
         load_enabled_rule_ids(config)
 
 
+def test_utf8_bom_raises_config_error(tmp_path):
+    # A leading UTF-8 BOM (common from Windows editors and PowerShell's
+    # default Out-File/Set-Content encoding) decodes fine under
+    # encoding="utf-8" but leaves a literal U+FEFF character at the start of
+    # the text, which json.loads rejects as invalid JSON rather than
+    # stripping silently.
+    config = tmp_path / ".mdlintrc"
+    config.write_bytes(b'\xef\xbb\xbf{"enabled": ["MDS01"]}')
+
+    with pytest.raises(ConfigError, match=str(config)):
+        load_enabled_rule_ids(config)
+
+
 def test_empty_file_raises_config_error(tmp_path):
     config = tmp_path / ".mdlintrc"
     config.write_text("")
