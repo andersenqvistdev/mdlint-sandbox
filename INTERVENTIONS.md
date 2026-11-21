@@ -421,3 +421,41 @@ All predate the run window and none required changing product code.
   see this goal as COMPLETE) rather than contradicting it — the code has
   had zero core-feature gaps across 15 consecutive cycles spanning over two
   months. No product code changed for this task.
+- **The "already-satisfied brief" pattern recurred a 16th time for G7 on
+  `task-20261121004410-b2db01` (2026-11-21),** the same four-feature goal
+  string (`--fix`, `.mdlintrc`, `--format text|json`, `--ignore`) minted
+  repeatedly since 2026-09-13, now spanning a 2-month+ gap with no further
+  commits to the two files in between. Re-verified rather than assumed:
+  `git log -- src/mdlint/cli.py src/mdlint/config.py` still shows no commits
+  since 786adcb/ee6300e (2026-09-06/09-19, both prior recurrences of this
+  same goal), `pytest tests/` 478/478 passing (`PYTHONPATH=src`, since this
+  worktree's `.venv` again lacks pytest), `ruff check .` and
+  `ruff format --check .` clean. Read both files end-to-end again and tried
+  four fresh hypotheses, all already covered or non-issues: a bare `-` file
+  argument (argparse accepts it as a normal positional; `Path("-").read_text()`
+  then just hits the same already-tested nonexistent-file path, not new
+  behavior), the same file path repeated in `files` under `--fix` (covered by
+  `test_fix_with_the_same_file_passed_twice_is_idempotent`), `--ignore`
+  combined with `--fix` on the same run (covered end-to-end by
+  `test_fix_config_format_and_ignore_flags_all_combine_correctly` and the
+  installed-console-script variant), and `"enabled": []` at the CLI level
+  (covered by `test_config_with_empty_enabled_list_runs_no_rules` and
+  `test_fix_with_empty_enabled_list_leaves_the_file_untouched`). Found
+  nothing genuinely new. This is now 16 consecutive cycles with zero
+  core-feature gaps, re-confirming the 2026-11-17 root-cause finding: the
+  worktree-local, gitignored `goal_verification_state.json` structurally
+  cannot receive a verified stamp from a disposable queue-fill task
+  worktree, so the admission gate can never see this goal as COMPLETE no
+  matter how exhaustively it's re-verified. Per that finding's own
+  recommendation, this was deliberately **not** fixed from inside this
+  one-shot task — stamping the goal via `verify_goal(..., confirm=True)`
+  from here would still not propagate past this disposable worktree, and
+  reworking the shared persistence layer (option (b): a git-tracked stamp
+  that survives worktree→merge) touches goal-assessment logic used by every
+  goal in the daemon and needs review with full test coverage, not a
+  20-minute task slot. Flagging directly for the user/operator: the fix
+  belongs in `.claude/hooks/company/goal_tracker.py`
+  (`_VERIFICATION_STATE_FILE` / `load_goal_verification_state` /
+  `_stamp_goal_verified`, around line 3601) as its own dedicated task, not
+  as a side effect of re-verifying G7 (or G2/G5/G6/G8) yet again. No product
+  code changed for this task.
