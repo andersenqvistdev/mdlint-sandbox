@@ -215,6 +215,25 @@ def test_ordered_list_item_with_paren_delimiter_is_not_treated_as_underline():
     assert headings == []
 
 
+def test_asterisk_list_item_is_not_treated_as_underline():
+    # _LIST_ITEM_RE's unordered marker class is "[-*+]", not just "-"; only
+    # the dash alternative was exercised above, leaving "*" untested despite
+    # the shared coverage line.
+    lines = ["Paragraph text", "* item"]
+
+    headings = list(iter_headings(lines))
+
+    assert headings == []
+
+
+def test_plus_list_item_is_not_treated_as_underline():
+    lines = ["Paragraph text", "+ item"]
+
+    headings = list(iter_headings(lines))
+
+    assert headings == []
+
+
 def test_mixed_character_run_is_not_a_valid_setext_underline():
     # A run mixing "=" and "-" matches neither alternative of the homogeneous
     # _SETEXT_UNDERLINE_RE groups, so it is ordinary paragraph continuation
