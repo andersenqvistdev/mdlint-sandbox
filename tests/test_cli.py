@@ -725,6 +725,19 @@ def test_invalid_config_json_exits_two(tmp_path, capsys):
     assert str(config) in captured.err
 
 
+def test_config_with_utf8_bom_exits_two(tmp_path, capsys):
+    doc = tmp_path / "doc.md"
+    doc.write_text("# Title\n")
+    config = tmp_path / ".mdlintrc"
+    config.write_bytes(b'\xef\xbb\xbf{"enabled": ["MDS01"]}')
+
+    exit_code = main(["--config", str(config), str(doc)])
+
+    captured = capsys.readouterr()
+    assert exit_code == 2
+    assert str(config) in captured.err
+
+
 def test_default_config_is_discovered_in_the_current_directory(tmp_path, capsys, monkeypatch):
     doc = tmp_path / "doc.md"
     doc.write_text("Not a heading\n# Title\n### Too deep\n")
