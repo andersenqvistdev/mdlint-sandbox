@@ -858,6 +858,25 @@ def test_config_with_invalid_utf8_exits_two(tmp_path, capsys):
     assert captured.out == ""
 
 
+@needs_unix_perms
+def test_unreadable_config_file_exits_two(tmp_path, capsys):
+    doc = tmp_path / "doc.md"
+    doc.write_text("# Title\n")
+    config = tmp_path / ".mdlintrc"
+    config.write_text(json.dumps({"enabled": ["MDS01"]}))
+    config.chmod(0o000)
+
+    try:
+        exit_code = main(["--config", str(config), str(doc)])
+    finally:
+        config.chmod(0o644)
+
+    captured = capsys.readouterr()
+    assert exit_code == 2
+    assert str(config) in captured.err
+    assert captured.out == ""
+
+
 def test_invalid_config_error_takes_priority_over_invalid_ignore_pattern(tmp_path, capsys):
     doc = tmp_path / "doc.md"
     doc.write_text("# Title\n")
