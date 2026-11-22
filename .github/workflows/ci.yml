@@ -25,7 +25,7 @@ jobs:
         run: ruff check .
 
       - name: Test
-        run: pytest tests/ -q
+        run: pytest tests/ -q --cov=mdlint --cov-report=json --cov-report=term-missing --cov-fail-under=80
 
   acceptance:
     # Does mdlint agree with CommonMark? The unit tests cannot answer this: they
