@@ -138,6 +138,18 @@ def test_fails_for_two_empty_text_siblings():
     assert violations[0].message == "duplicate sibling heading: ''"
 
 
+def test_detects_duplicate_setext_siblings_following_front_matter():
+    # The front-matter skip must still let the first setext "Title" register
+    # as a sibling, so the second "Title" underneath is still caught as a
+    # duplicate rather than being hidden behind the skipped lines.
+    lines = ["---", "x: y", "---", "Title", "=====", "", "Title", "====="]
+
+    violations = check("doc.md", lines)
+
+    assert len(violations) == 1
+    assert violations[0].line == 7
+
+
 def test_detects_duplicate_siblings_separated_by_a_descent_into_a_child():
     # The first "Beta" gains a child ("Gamma") before the second "Beta"
     # appears. The ancestor stack must pop back down to "Title" correctly so
