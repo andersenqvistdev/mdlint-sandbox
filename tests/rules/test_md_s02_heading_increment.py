@@ -110,6 +110,18 @@ def test_front_matter_closing_delimiter_does_not_create_a_phantom_heading():
     assert check("doc.md", lines) == []
 
 
+def test_fails_when_a_level_is_skipped_after_a_setext_h1_following_front_matter():
+    # The front-matter skip must still let the setext "Title" register as
+    # the tracked H1, so the later ATX jump to H3 is caught as a skip from
+    # that setext heading rather than from no heading at all.
+    lines = ["---", "x: y", "---", "Title", "=====", "### Too deep"]
+
+    violations = check("doc.md", lines)
+
+    assert len(violations) == 1
+    assert violations[0].line == 6
+
+
 def test_fails_when_a_level_is_skipped_after_dropping_back_down():
     # Dropping back down (H3 -> H1) is always fine on its own, but the level
     # tracker must still flag the *next* jump from that new, lower level —

@@ -169,6 +169,16 @@ def test_fails_when_first_line_has_seven_hashes():
     assert violations[0].line == 1
 
 
+def test_passes_when_setext_h1_follows_yaml_front_matter():
+    # The front-matter skip and setext detection must compose: the "Title"
+    # paragraph starts counting only after the closing "---", so its
+    # "=====" underline is read as *that* paragraph's H1 marker rather than
+    # a second front-matter delimiter or a phantom heading.
+    lines = ["---", "title: Example", "---", "", "Title", "=====", "body"]
+
+    assert check("doc.md", lines) == []
+
+
 def test_fails_when_document_opens_with_an_indented_code_block_and_underline():
     # "    indented code" + "=====" is a code block plus an ordinary
     # paragraph per CommonMark, not a setext H1 — so the first line is
