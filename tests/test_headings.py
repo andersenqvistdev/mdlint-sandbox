@@ -363,6 +363,22 @@ def test_paragraph_after_a_blockquote_line_still_starts_fresh():
     assert headings == [Heading(level=1, text="New paragraph", line=2)]
 
 
+def test_short_dash_run_with_nothing_above_becomes_paragraph_text():
+    # _SETEXT_UNDERLINE_RE matches a "-" run of any length, but the
+    # thematic-break short-circuit only fires for runs of 3+ ("---" is
+    # tested above). A shorter run like "--" falls through to ordinary
+    # paragraph text per CommonMark — and, as paragraph text, can itself
+    # become the title of a setext heading below it. Only the "="
+    # character variant of this same fallthrough branch was exercised
+    # (via the blockquote tests above), leaving the "-"-specific
+    # sub-case of the elif's boolean condition untested.
+    lines = ["--", "===="]
+
+    headings = list(iter_headings(lines))
+
+    assert headings == [Heading(level=1, text="--", line=1)]
+
+
 def test_six_hashes_is_a_valid_h6():
     headings = list(iter_headings(["###### Deepest heading"]))
 
